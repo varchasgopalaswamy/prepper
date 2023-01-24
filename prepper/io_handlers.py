@@ -16,15 +16,16 @@ import numpy as np
 
 from prepper import H5StoreException
 from prepper.enums import H5StoreTypes
+
 if TYPE_CHECKING:
     from prepper.exportable import ExportableClassMixin
 __all__ = [
-    'dump_custom_h5_type',
-    'read_h5_attr',
-    'write_h5_attr',
-    'load_custom_h5_type',
-    'dump_class_constructor',
-    'saveable_class'
+    "dump_custom_h5_type",
+    "read_h5_attr",
+    "write_h5_attr",
+    "load_custom_h5_type",
+    "dump_class_constructor",
+    "saveable_class",
 ]
 
 _NONE_TYPE_SENTINEL = "__python_None_sentinel__"
@@ -73,7 +74,7 @@ def saveable_class(api_version: float, save: List[str] = None):
     if save is None:
         save = []
 
-    def decorator(cls:ExportableClassMixin):
+    def decorator(cls: ExportableClassMixin):
 
         attribute_names = [s for s in save]
         function_names = []
@@ -175,7 +176,11 @@ def load_None(file: str, group: str):
 #### HDF5 Group ######
 @_register(CUSTOM_H5_WRITERS, lambda x: isinstance(x, h5py.Group))
 def dump_hdf5_group(
-    file: str, group: str, value: h5py.Group, version:str = '', code_name:str = ''
+    file: str,
+    group: str,
+    value: h5py.Group,
+    version: str = "",
+    code_name: str = "",
 ) -> Dict[str, Any]:
     attributes = {}
     with h5py.File(file, mode="a", track_order=True) as hdf5_file:
@@ -225,7 +230,6 @@ def load_exportable_class(file: str, group: str) -> Type[ExportableClassMixin]:
             raise H5StoreException(msg)
         class_definition = getattr(class_module, entry.attrs["class"])
         return class_definition.from_hdf5(file, group)
-
 
 
 #### generic HDF5 dataset ####

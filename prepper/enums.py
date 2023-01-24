@@ -1,9 +1,12 @@
+# -*- coding: utf-8 -*-
+from __future__ import annotations
 
-from aenum import Enum, unique, auto
+from typing import TYPE_CHECKING
 
-__all__ = [
-    'H5StoreTypes'
-]
+from aenum import auto, Enum, unique
+
+__all__ = ["H5StoreTypes"]
+
 
 @unique
 class H5StoreTypes(Enum):
@@ -19,4 +22,3 @@ class H5StoreTypes(Enum):
     PeriodicTableElement = auto()
     Null = auto()
     Enumerator = auto()
-

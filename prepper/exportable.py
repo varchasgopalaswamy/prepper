@@ -10,26 +10,26 @@ import traceback
 import uuid
 from abc import ABCMeta
 from inspect import Parameter, signature
-from typing import Any, Dict, Tuple, List
+from typing import Any, Dict, List, Tuple, TYPE_CHECKING
 
 import h5py
 import loguru
 import numpy as np
 
 from prepper import H5StoreException
-from prepper.enums import H5StoreTypes
 from prepper.caching import break_key, make_cache_name
+from prepper.enums import H5StoreTypes
 from prepper.io_handlers import (
-            dump_custom_h5_type,
-            read_h5_attr,
-            write_h5_attr,
-            load_custom_h5_type,
-            dump_class_constructor
-        )
+    dump_class_constructor,
+    dump_custom_h5_type,
+    load_custom_h5_type,
+    read_h5_attr,
+    write_h5_attr,
+)
+
 __all__ = [
     "ExportableClassMixin",
 ]
-
 
 
 class ExportableClassMixin(object, metaclass=ABCMeta):
@@ -38,10 +38,10 @@ class ExportableClassMixin(object, metaclass=ABCMeta):
 
     """
 
-    _constructor_args:Dict[str,Any] = {}
-    api_version:float
-    _exportable_attributes:List[str]
-    _exportable_functions:List[str]
+    _constructor_args: Dict[str, Any] = {}
+    api_version: float
+    _exportable_attributes: List[str]
+    _exportable_functions: List[str]
 
     def __copy__(self):
         return self.__class__(**self._constructor_args)
@@ -128,7 +128,9 @@ class ExportableClassMixin(object, metaclass=ABCMeta):
             loguru.logger.warning(f"HDF5 file {path} exists... overwriting.")
 
         if not os.path.exists(os.path.dirname(path)):
-            raise FileNotFoundError(f'The parent directory for {path} does not exist!')
+            raise FileNotFoundError(
+                f"The parent directory for {path} does not exist!"
+            )
 
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_file = os.path.join(temp_dir, str(uuid.uuid1()))
@@ -163,7 +165,6 @@ class ExportableClassMixin(object, metaclass=ABCMeta):
         return obj
 
     def _read_hdf5_contents(self, file, group):
-
 
         with h5py.File(file, mode="r", track_order=True) as hdf5_file:
             if group not in hdf5_file:
@@ -204,7 +205,6 @@ class ExportableClassMixin(object, metaclass=ABCMeta):
     @staticmethod
     def _load_h5_entry(file: str, group: str) -> Tuple[H5StoreTypes, Any]:
 
-
         with h5py.File(file, mode="r", track_order=True) as hdf5_file:
             if group not in hdf5_file:
                 raise FileNotFoundError(
@@ -218,7 +218,6 @@ class ExportableClassMixin(object, metaclass=ABCMeta):
 
     def _write_hdf5_contents(self, file: str, group: str, attributes=None):
 
-
         if attributes is None:
             attributes = {}
         # Write this class' metadata
@@ -229,7 +228,7 @@ class ExportableClassMixin(object, metaclass=ABCMeta):
             attributes["class"] = self.__class__.__name__
             attributes["timestamp"] = datetime.datetime.now().isoformat()
             attributes["version"] = self.version
-            attributes["code"] = self.__class__.__module__.split('.')[0]
+            attributes["code"] = self.__class__.__module__.split(".")[0]
             attributes["type"] = H5StoreTypes.PythonClass.name
             attributes["api_version"] = self.api_version
 
@@ -302,7 +301,6 @@ class ExportableClassMixin(object, metaclass=ABCMeta):
         value: Any,
         attributes: Dict[str, Any] = None,
     ):
-
 
         entry_name = entry_name.replace("//", "/").strip()
         if attributes is None:

@@ -3,12 +3,12 @@ from __future__ import annotations
 
 import functools
 from functools import update_wrapper, wraps
+from typing import TYPE_CHECKING
 
 from numpy import ndarray
 
-
 __all__ = [
-    'break_key',
+    "break_key",
     "make_cache_name",
     "cached_property",
     "local_cache",
@@ -32,6 +32,7 @@ class _HashedSeq(list):
     def __hash__(self):
         return self.hashvalue
 
+
 def break_key(key):
     "Breaks a function cache key into the args and kwargs"
     args = []
@@ -45,6 +46,7 @@ def break_key(key):
     else:
         args = key
     return args, kwargs
+
 
 def make_cache_name(name):
     return f"__lcache_{name}__"
