@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from aenum import auto, Enum, unique
 
 __all__ = ["H5StoreTypes"]

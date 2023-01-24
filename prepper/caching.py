@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import functools
 from functools import update_wrapper, wraps
-from typing import TYPE_CHECKING
 
 from numpy import ndarray
 

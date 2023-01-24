@@ -10,7 +10,7 @@ import traceback
 import uuid
 from abc import ABCMeta
 from inspect import Parameter, signature
-from typing import Any, Dict, List, Tuple, TYPE_CHECKING
+from typing import Any, Dict, List, Tuple
 
 import h5py
 import loguru
