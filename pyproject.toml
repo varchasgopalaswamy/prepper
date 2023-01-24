@@ -1,0 +1,19 @@
+[tool.poetry]
+name = "prepper"
+version = "0.1.0"
+description = "Allows python objects to be stored and loaded from an HDF5 file"
+authors = ["Varchas Gopalaswamy <vgop@lle.rochester.edu>"]
+license = "MIT"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.9"
+h5py = "^3.8.0"
+numpy = "^1.24.1"
+loguru = "^0.6.0"
+aenum = "^3.1.11"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
