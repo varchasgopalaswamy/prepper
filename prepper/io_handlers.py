@@ -26,11 +26,15 @@ __all__ = [
     "load_custom_h5_type",
     "dump_class_constructor",
     "saveable_class",
+    "register_loader",
+    "register_writer",
 ]
 
 _NONE_TYPE_SENTINEL = "__python_None_sentinel__"
 PYTHON_BASIC_TYPES = (int, float, str)
 NUMPY_NUMERIC_TYPES = (np.int32, np.int64, np.float32, np.float64)
+DEFAULT_H5_WRITERS = {}
+DEFAULT_H5_LOADERS = {}
 CUSTOM_H5_WRITERS = {}
 CUSTOM_H5_LOADERS = {}
 HDF5_COMPRESSION = {}
@@ -99,6 +103,66 @@ def saveable_class(api_version: float, save: List[str] = None):
     return decorator
 
 
+def register_loader(validator):
+    def decorator(func):
+        CUSTOM_H5_LOADERS[func.__name__] = (validator, func)
+        return func
+
+    return decorator
+
+
+def register_writer(validator):
+    def decorator(func):
+        CUSTOM_H5_WRITERS[func.__name__] = (validator, func)
+        return func
+
+    return decorator
+
+
+def dump_custom_h5_type(file: str, group: str, value: Any):
+    writers = {}
+    writers.update(CUSTOM_H5_WRITERS)
+    writers.update(DEFAULT_H5_WRITERS)
+
+    for validator, writer in writers.values():
+        if validator(value):
+            attrs = writer(file, group, value)
+
+            with h5py.File(file, mode="a", track_order=True) as hdf5_file:
+                try:
+                    entry = hdf5_file[group]
+                except KeyError:
+                    entry = hdf5_file.require_group(group)
+                for k, v in attrs.items():
+                    try:
+                        write_h5_attr(entry, k, v)
+                    except H5StoreException:
+                        msg = (
+                            f"Failed to write attribute {k} to group {group}!"
+                        )
+                        loguru.logger.error(msg, exc_info=True)
+
+            return
+    raise H5StoreException(
+        f"None of the custom HDF5 writer functions supported a value of type {type(value)}!"
+    )
+
+
+def load_custom_h5_type(file: str, group: str, entry_type: H5StoreTypes):
+    loaders = {}
+    loaders.update(CUSTOM_H5_LOADERS)
+    loaders.update(DEFAULT_H5_LOADERS)
+    for loader_type, loader in loaders.values():
+        if loader_type == entry_type:
+            return loader(file, group)
+    msg = f"No loader found for custom HDF5 store type {entry_type}!"
+    loguru.logger.error(msg, exc_info=True)
+    raise H5StoreException(msg)
+
+
+#### Internal functions below here
+
+
 def _register(store, validator):
     def decorator(func):
         store[func.__name__] = (validator, func)
@@ -126,55 +190,21 @@ def key_to_group_name(key):
                 return name
 
 
-def dump_custom_h5_type(file: str, group: str, value: Any):
-    for validator, writer in CUSTOM_H5_WRITERS.values():
-        if validator(value):
-            attrs = writer(file, group, value)
-
-            with h5py.File(file, mode="a", track_order=True) as hdf5_file:
-                try:
-                    entry = hdf5_file[group]
-                except KeyError:
-                    entry = hdf5_file.require_group(group)
-                for k, v in attrs.items():
-                    try:
-                        write_h5_attr(entry, k, v)
-                    except H5StoreException:
-                        msg = (
-                            f"Failed to write attribute {k} to group {group}!"
-                        )
-                        loguru.logger.error(msg, exc_info=True)
-
-            return
-    raise H5StoreException(
-        f"None of the custom HDF5 writer functions supported a value of type {type(value)}!"
-    )
-
-
-def load_custom_h5_type(file: str, group: str, entry_type: H5StoreTypes):
-    for loader_type, loader in CUSTOM_H5_LOADERS.values():
-        if loader_type == entry_type:
-            return loader(file, group)
-    msg = f"No loader found for custom HDF5 store type {entry_type}!"
-    loguru.logger.error(msg, exc_info=True)
-    raise H5StoreException(msg)
-
-
 #### NONE ####
-@_register(CUSTOM_H5_WRITERS, lambda x: x is None)
+@_register(DEFAULT_H5_WRITERS, lambda x: x is None)
 def dump_None(file: str, group: str, value: None) -> Dict[str, Any]:
     attributes = {}
     attributes["type"] = H5StoreTypes.Null.name
     return attributes
 
 
-@_register(CUSTOM_H5_LOADERS, H5StoreTypes.Null)
+@_register(DEFAULT_H5_LOADERS, H5StoreTypes.Null)
 def load_None(file: str, group: str):
     return None
 
 
 #### HDF5 Group ######
-@_register(CUSTOM_H5_WRITERS, lambda x: isinstance(x, h5py.Group))
+@_register(DEFAULT_H5_WRITERS, lambda x: isinstance(x, h5py.Group))
 def dump_hdf5_group(
     file: str,
     group: str,
@@ -194,7 +224,7 @@ def dump_hdf5_group(
     return attributes
 
 
-@_register(CUSTOM_H5_LOADERS, H5StoreTypes.HDF5Group)
+@_register(DEFAULT_H5_LOADERS, H5StoreTypes.HDF5Group)
 def load_hdf5_group(file: str, group: str):
     with h5py.File(file, "r", track_order=True) as hdf5_file:
         return hdf5_file[group]["value"]
@@ -202,7 +232,7 @@ def load_hdf5_group(file: str, group: str):
 
 #### python class ####
 @_register(
-    CUSTOM_H5_WRITERS, lambda x: issubclass(type(x), ExportableClassMixin)
+    DEFAULT_H5_WRITERS, lambda x: issubclass(type(x), ExportableClassMixin)
 )
 def dump_exportable_class(
     file: str, group: str, value: Type[ExportableClassMixin]
@@ -215,7 +245,7 @@ def dump_exportable_class(
     return attributes
 
 
-@_register(CUSTOM_H5_LOADERS, H5StoreTypes.PythonClass)
+@_register(DEFAULT_H5_LOADERS, H5StoreTypes.PythonClass)
 def load_exportable_class(file: str, group: str) -> Type[ExportableClassMixin]:
     with h5py.File(file, "r", track_order=True) as hdf5_file:
         entry = hdf5_file[group]
@@ -234,7 +264,7 @@ def load_exportable_class(file: str, group: str) -> Type[ExportableClassMixin]:
 
 #### generic HDF5 dataset ####
 @_register(
-    CUSTOM_H5_WRITERS,
+    DEFAULT_H5_WRITERS,
     lambda x: isinstance(x, PYTHON_BASIC_TYPES)
     or isinstance(x, NUMPY_NUMERIC_TYPES)
     or isinstance(x, np.ndarray)
@@ -267,7 +297,7 @@ def dump_python_types_or_ndarray(
     return attributes
 
 
-@_register(CUSTOM_H5_LOADERS, H5StoreTypes.HDF5Dataset)
+@_register(DEFAULT_H5_LOADERS, H5StoreTypes.HDF5Dataset)
 def load_python_types_or_ndarray(file: str, group: str):
     with h5py.File(file, "r", track_order=True) as hdf5_file:
         entry = hdf5_file[group]
@@ -309,7 +339,7 @@ def dump_class_constructor(
         )
 
 
-@_register(CUSTOM_H5_LOADERS, H5StoreTypes.ClassConstructor)
+@_register(DEFAULT_H5_LOADERS, H5StoreTypes.ClassConstructor)
 def load_class_constructor(file: str, group: str):
     kwargs = {}
     with h5py.File(file, mode="r", track_order=True) as hdf5_file:
@@ -323,7 +353,7 @@ def load_class_constructor(file: str, group: str):
 
 
 #### python dict ####
-@_register(CUSTOM_H5_WRITERS, lambda x: isinstance(x, dict))
+@_register(DEFAULT_H5_WRITERS, lambda x: isinstance(x, dict))
 def dump_dictionary(file: str, group: str, value: Any) -> Dict[str, Any]:
     attributes = {}
     with h5py.File(file, mode="a", track_order=True) as hdf5_file:
@@ -365,7 +395,7 @@ def dump_dictionary(file: str, group: str, value: Any) -> Dict[str, Any]:
     return attributes
 
 
-@_register(CUSTOM_H5_LOADERS, H5StoreTypes.Dictionary)
+@_register(DEFAULT_H5_LOADERS, H5StoreTypes.Dictionary)
 def load_dictionary(file: str, group: str):
     with h5py.File(file, mode="r", track_order=True) as hdf5_file:
         entry = hdf5_file[group]
@@ -391,7 +421,7 @@ def load_dictionary(file: str, group: str):
 
 
 #### python sequence ####
-@_register(CUSTOM_H5_WRITERS, lambda x: isinstance(x, Iterable))
+@_register(DEFAULT_H5_WRITERS, lambda x: isinstance(x, Iterable))
 def dump_generic_sequence(
     file: str, group: str, value: Sequence[Any]
 ) -> Dict[str, Any]:
@@ -419,7 +449,7 @@ def dump_generic_sequence(
     return attributes
 
 
-@_register(CUSTOM_H5_LOADERS, H5StoreTypes.Sequence)
+@_register(DEFAULT_H5_LOADERS, H5StoreTypes.Sequence)
 def load_generic_sequence(file: str, group: str) -> List[Any]:
     with h5py.File(file, mode="r", track_order=True) as hdf5_file:
         entry = hdf5_file[group]
@@ -446,7 +476,7 @@ def load_generic_sequence(file: str, group: str) -> List[Any]:
 
 
 #### python enum ####
-@_register(CUSTOM_H5_WRITERS, lambda x: isinstance(x, Enum))
+@_register(DEFAULT_H5_WRITERS, lambda x: isinstance(x, Enum))
 def dump_python_enum(
     file: str, group: str, value: Type[Enum]
 ) -> Dict[str, Any]:
@@ -462,7 +492,7 @@ def dump_python_enum(
     return attributes
 
 
-@_register(CUSTOM_H5_LOADERS, H5StoreTypes.Enumerator)
+@_register(DEFAULT_H5_LOADERS, H5StoreTypes.Enumerator)
 def load_python_enum(file: str, group: str) -> Type[Enum]:
     with h5py.File(file, "r", track_order=True) as hdf5_file:
         entry = hdf5_file[group]

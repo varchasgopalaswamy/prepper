@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-from aenum import auto, Enum, unique
+from aenum import auto, Enum, extend_enum, unique
 
-__all__ = ["H5StoreTypes"]
+__all__ = ["H5StoreTypes", "add_enum_item"]
 
 
 @unique
@@ -14,9 +14,10 @@ class H5StoreTypes(Enum):
     PythonClass = auto()
     HDF5Dataset = auto()
     HDF5Group = auto()
-    DimensionalNDArray = auto()
-    XArrayDataset = auto()
     FunctionCache = auto()
-    PeriodicTableElement = auto()
     Null = auto()
     Enumerator = auto()
+
+
+def add_enum_item(name: str):
+    extend_enum(H5StoreTypes, name, auto())
