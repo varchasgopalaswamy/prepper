@@ -7,13 +7,12 @@ import inspect
 
 from prepper import ExportableClassMixin, saveable_class, cached_property
 
-@saveable_class("0.0.1")
+@saveable_class("0.0.1", save=['test_string'])
 class SimpleSaveableClass(ExportableClassMixin):
     """
     A simple saveable class, used to test saving as an attribute of another
     saveable class
     """
-    _exportable_attributes = ['test_string']
     def __init__(self):
         self.test_string = 'test string SimpleSaveableClass'
         
@@ -39,7 +38,7 @@ saveable_variables = [
      (np.random.random((5, 3, 2))), # ndarray 3D
      ({'key1':1, 2:'two', 3.3:3}), # dict with string, int, float
      ([1, 2, 3]), # list (all the same datatype)
-     #([1, 'two', 3.3]), # List (all different datatypes)
+     ([1, 'two', 3.3]), # List (all different datatypes)
      (SimpleSaveableClass()), # Saveable class
      
 ]
@@ -88,9 +87,8 @@ def test_export_import(var, tmp_path):
     Test that you can export and import an object with every supported type
     """
     
-    @saveable_class("0.0.1")
+    @saveable_class("0.0.1", save=['test_var'])
     class ThisClassHasAVariable(ExportableClassMixin):
-        _exportable_attributes = ['test_var']
         def __init__(self):
             self.test_var = var
 
@@ -124,9 +122,8 @@ def test_export_hdf5_format(var, tmp_path):
     Test that you can export and import an object with every supported type
     """
     
-    @saveable_class("0.0.1")
+    @saveable_class("0.0.1", save=['test_var'])
     class ThisClassHasAVariable(ExportableClassMixin):
-        _exportable_attributes = ['test_var']
         def __init__(self):
             self.test_var = var
 
@@ -153,9 +150,8 @@ def test_error_during_export(var, error, msg, tmp_path):
     """
     path = os.path.join(tmp_path, 'tmp.hdf5')
     
-    @saveable_class("0.0.1")
+    @saveable_class("0.0.1", save=['test_var'])
     class ThisClassHasABadVariable(ExportableClassMixin):
-        _exportable_attributes = ['test_var']
         def __init__(self):
             self.test_var = var
     
@@ -174,13 +170,11 @@ def test_export_import_property(tmp_path):
     Test exporting and importing a cached property 
     """
     
-    @saveable_class("0.0.1")
+    @saveable_class("0.0.1", save=['answer'])
     class ClassWithProperty(ExportableClassMixin):
         """
         This class has a cached property
         """
-        _exportable_attributes = ['answer']
-        
         @property
         def answer(self):
             return 42
@@ -207,12 +201,12 @@ def test_export_import_cached_property(tmp_path):
     Test exporting and importing a cached property 
     """
     
-    @saveable_class("0.0.1")
+    @saveable_class("0.0.1", save=['expensive_fcn'])
     class ClassWithCachedProperty(ExportableClassMixin):
         """
         This class has a cached property
         """
-        _exportable_attributes = ['expensive_fcn']
+        _exportable_attributes = []
         
         @cached_property
         def expensive_fcn(self):
