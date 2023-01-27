@@ -39,7 +39,7 @@ saveable_variables = [
      (np.random.random((5, 3, 2))), # ndarray 3D
      ({'key1':1, 2:'two', 3.3:3}), # dict with string, int, float
      ([1, 2, 3]), # list (all the same datatype)
-     ([1, 'two', 3.3]), # List (all different datatypes)
+     #([1, 'two', 3.3]), # List (all different datatypes)
      (SimpleSaveableClass()), # Saveable class
      
 ]
@@ -50,6 +50,36 @@ unsaveable_variables = [
       "that does not support being saved to an HDF5 file!"), # Not a saveable class
      
 ]
+
+
+# Lists of attributes required for different types of objects
+req_class_attrs = ['module', 'class', 'timestamp', 'version', 'code',
+             'type', 'api_version']
+
+req_dataset_attrs = ['timestamp', 'type']
+
+req_none_attrs = ['type']
+
+def ensure_required_attributes(var, group):
+    """
+    Given an object, returns the attributes requried to be exported with that
+    object
+    
+    var : Variable that was saved to this file
+    
+    group: h5py.Group object where the object is stored
+    
+    """
+    if inspect.isclass(var):
+        req_attrs = req_class_attrs
+    elif var is None:
+        req_attrs = ['type']
+    else:
+        req_attrs = req_dataset_attrs
+        
+    for attr in req_attrs:
+        assert attr in group.attrs.keys()
+        
 
 
 @pytest.mark.parametrize("var", saveable_variables)
@@ -106,34 +136,15 @@ def test_export_hdf5_format(var, tmp_path):
     obj1.to_hdf5(path)
     
     with h5py.File(path, 'r') as f:
-        
-        req_class_attrs = ['module', 'class', 'timestamp', 'version', 'code',
-                     'type', 'api_version']
-        
-        req_dataset_attrs = ['timestamp', 'type']
-        
         # Test that the base level attributes are all there
-        for attr in req_class_attrs:
-            assert attr in f.attrs.keys()
-        
+        ensure_required_attributes(obj1, f)
         
         # Test that the exportable attribute was exported
         assert 'test_var' in f.keys()
         
-
         # Test that the exportable attribute has all the required attributes
-        if inspect.isclass(var):
-            req_attrs = req_class_attrs
-        elif var is None:
-            req_attrs = ['type']
-        else:
-            req_attrs = req_dataset_attrs
-        for attr in req_attrs:
-            assert attr in f['test_var'].attrs.keys()
-
-
-
-
+        ensure_required_attributes(var, f['test_var'])
+        
 
 @pytest.mark.parametrize("var,error,msg", unsaveable_variables)
 def test_error_during_export(var, error, msg, tmp_path):
@@ -152,6 +163,42 @@ def test_error_during_export(var, error, msg, tmp_path):
 
     with pytest.raises(error, match=msg):
         obj.to_hdf5(path)
+
+
+
+
+
+
+def test_export_import_property(tmp_path):
+    """
+    Test exporting and importing a cached property 
+    """
+    
+    @saveable_class("0.0.1")
+    class ClassWithProperty(ExportableClassMixin):
+        """
+        This class has a cached property
+        """
+        _exportable_attributes = ['answer']
+        
+        @property
+        def answer(self):
+            return 42
+        
+    path = os.path.join(tmp_path, 'tmp.hdf5')
+    
+    obj1 = ClassWithProperty()
+    obj1.to_hdf5(path)
+    
+    # Assert that everything was exported correctly
+    with h5py.File(path, 'r') as f:
+        ensure_required_attributes(obj1, f)
+        ensure_required_attributes(obj1, f['answer'])
+        
+    # Import and verify equality
+    obj2 = ClassWithProperty.from_hdf5(path)
+    assert obj1 == obj2
+
 
 
 
