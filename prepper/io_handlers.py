@@ -16,9 +16,8 @@ import numpy as np
 
 from prepper import H5StoreException
 from prepper.enums import H5StoreTypes
+from prepper.exportable import ExportableClassMixin
 
-if TYPE_CHECKING:
-    from prepper.exportable import ExportableClassMixin
 __all__ = [
     "dump_custom_h5_type",
     "read_h5_attr",
@@ -28,6 +27,8 @@ __all__ = [
     "saveable_class",
     "register_loader",
     "register_writer",
+    "get_hdf5_compression",
+    "set_hdf5_compression",
 ]
 
 _NONE_TYPE_SENTINEL = "__python_None_sentinel__"
@@ -38,6 +39,15 @@ DEFAULT_H5_LOADERS = {}
 CUSTOM_H5_WRITERS = {}
 CUSTOM_H5_LOADERS = {}
 HDF5_COMPRESSION = {}
+
+
+def get_hdf5_compression():
+    return HDF5_COMPRESSION
+
+
+def set_hdf5_compression(compression: Dict[str, Any]):
+    global HDF5_COMPRESSION
+    HDF5_COMPRESSION = compression
 
 
 def write_h5_attr(base: h5py.Group, name: str, value: Any):

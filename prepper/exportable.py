@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import copy
 import datetime
+import importlib.metadata
 import os
 import shutil
 import tempfile
@@ -19,13 +20,6 @@ import numpy as np
 from prepper import H5StoreException
 from prepper.caching import break_key, make_cache_name
 from prepper.enums import H5StoreTypes
-from prepper.io_handlers import (
-    dump_class_constructor,
-    dump_custom_h5_type,
-    load_custom_h5_type,
-    read_h5_attr,
-    write_h5_attr,
-)
 
 __all__ = [
     "ExportableClassMixin",
@@ -165,6 +159,7 @@ class ExportableClassMixin(object, metaclass=ABCMeta):
         return obj
 
     def _read_hdf5_contents(self, file, group):
+        from prepper.io_handlers import read_h5_attr
 
         with h5py.File(file, mode="r", track_order=True) as hdf5_file:
             if group not in hdf5_file:
@@ -204,6 +199,7 @@ class ExportableClassMixin(object, metaclass=ABCMeta):
 
     @staticmethod
     def _load_h5_entry(file: str, group: str) -> Tuple[H5StoreTypes, Any]:
+        from prepper.io_handlers import load_custom_h5_type
 
         with h5py.File(file, mode="r", track_order=True) as hdf5_file:
             if group not in hdf5_file:
@@ -217,18 +213,25 @@ class ExportableClassMixin(object, metaclass=ABCMeta):
             return entry_type, load_custom_h5_type(file, group, entry_type)
 
     def _write_hdf5_contents(self, file: str, group: str, attributes=None):
+        from prepper.io_handlers import (
+            dump_class_constructor,
+            dump_custom_h5_type,
+            load_custom_h5_type,
+            read_h5_attr,
+            write_h5_attr,
+        )
 
         if attributes is None:
             attributes = {}
         # Write this class' metadata
         with h5py.File(file, mode="a", track_order=True) as hdf5_file:
             my_group = hdf5_file.require_group(group)
-
+            code_name = self.__class__.__module__.split(".")[0]
             attributes["module"] = self.__class__.__module__
             attributes["class"] = self.__class__.__name__
             attributes["timestamp"] = datetime.datetime.now().isoformat()
-            attributes["version"] = self.version
-            attributes["code"] = self.__class__.__module__.split(".")[0]
+            attributes["version"] = importlib.metadata.version(code_name)
+            attributes["code"] = code_name
             attributes["type"] = H5StoreTypes.PythonClass.name
             attributes["api_version"] = self.api_version
 
@@ -301,6 +304,7 @@ class ExportableClassMixin(object, metaclass=ABCMeta):
         value: Any,
         attributes: Dict[str, Any] = None,
     ):
+        from prepper.io_handlers import dump_custom_h5_type, write_h5_attr
 
         entry_name = entry_name.replace("//", "/").strip()
         if attributes is None:

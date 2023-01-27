@@ -83,17 +83,13 @@ def chunks(lst, n):
 
 def _cache_wrapper(user_function):
     # Constants shared by all lru cache instances:
-    sentinel = object()  # unique object used to signal cache misses
-    make_key = _make_key  # build a key from the function arguments
 
-    @wraps
     def wrapper(instance, *args, **kwds):
         cache = object.__getattribute__(instance, "__dict__")
         key = _make_key(args, dict(sorted(kwds.items())))
         fname = make_cache_name(user_function.__name__)
         if fname in cache:
             function_cache = cache[fname]
-            sentinel = object()
             if key in function_cache:
                 return function_cache[key]
         else:
