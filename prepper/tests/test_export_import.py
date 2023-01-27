@@ -4,20 +4,29 @@ import numpy as np
 import h5py
 import inspect
 
-from prepper.exportable import ExportableClassMixin
-from prepper.io_handlers import saveable_class
 
+from prepper import ExportableClassMixin, saveable_class, cached_property
 
 @saveable_class("0.0.1")
-class ClassWithinAClass(ExportableClassMixin):
+class SimpleSaveableClass(ExportableClassMixin):
+    """
+    A simple saveable class, used to test saving as an attribute of another
+    saveable class
+    """
     _exportable_attributes = ['test_string']
     def __init__(self):
-        self.test_string = 'test string ClassWithinAClass'
+        self.test_string = 'test string SimpleSaveableClass'
         
         
 class NotASaveableClass():
+    """
+    This class is not decorated to be saveable, and an exception
+    should be raised if you try
+    """
     def __init__(self):
         self.test_int = 1
+        
+        
 
 # Varaible types to try and save
 saveable_variables = [
@@ -31,7 +40,7 @@ saveable_variables = [
      ({'key1':1, 2:'two', 3.3:3}), # dict with string, int, float
      ([1, 2, 3]), # list (all the same datatype)
      ([1, 'two', 3.3]), # List (all different datatypes)
-     (ClassWithinAClass()), # Saveable class
+     (SimpleSaveableClass()), # Saveable class
      
 ]
 
@@ -44,7 +53,7 @@ unsaveable_variables = [
 
 
 @pytest.mark.parametrize("var", saveable_variables)
-def test_export_import_mixin(var, tmp_path):
+def test_export_import(var, tmp_path):
     """
     Test that you can export and import an object with every supported type
     """
@@ -77,7 +86,6 @@ def test_export_import_mixin(var, tmp_path):
     else:
         assert type(obj2.test_var) == type(var)
     
-
 
 
 @pytest.mark.parametrize("var", saveable_variables)
@@ -146,4 +154,33 @@ def test_error_during_export(var, error, msg, tmp_path):
         obj.to_hdf5(path)
 
 
+
+def test_export_import_cached_property(tmp_path):
+    """
+    Test exporting and importing a cached property 
+    """
+    
+    @saveable_class("0.0.1")
+    class ClassWithCachedProperty(ExportableClassMixin):
+        """
+        This class has a cached property
+        """
+        _exportable_attributes = ['expensive_fcn']
+        
+        @cached_property
+        def expensive_fcn(self):
+            return 'This string took 1000 hours to calculate'
+        
+        
+    path = os.path.join(tmp_path, 'tmp.hdf5')
+    
+    obj1 = ClassWithCachedProperty()
+    obj1.to_hdf5(path)
+    
+    # So far we haven't actually called the cached_property, so it should
+    # NOT be saved?
+    
+    with h5py.File(path, 'r') as f:
+        print(list(f['expensive_fcn'].attrs.keys()))
+        print(f['expensive_fcn'][...])
 
