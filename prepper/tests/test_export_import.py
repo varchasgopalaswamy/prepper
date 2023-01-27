@@ -206,8 +206,6 @@ def test_export_import_cached_property(tmp_path):
         """
         This class has a cached property
         """
-        _exportable_attributes = []
-        
         @cached_property
         def expensive_fcn(self):
             return 'This string took 1000 hours to calculate'
@@ -224,4 +222,3 @@ def test_export_import_cached_property(tmp_path):
     with h5py.File(path, 'r') as f:
         print(list(f['expensive_fcn'].attrs.keys()))
         print(f['expensive_fcn'][...])
-
