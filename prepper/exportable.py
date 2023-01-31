@@ -77,10 +77,7 @@ class ExportableClassMixin(object, metaclass=ABCMeta):
             try:
                 this_is_same = bool(mine == theirs)
             except Exception:
-                try:
-                    this_is_same = np.all(mine == theirs)
-                except Exception:
-                    this_is_same = False
+                this_is_same = np.all(mine == theirs)
             if not this_is_same:
                 loguru.logger.info(f"Attribute {attr} was not the same!")
             same &= this_is_same
@@ -95,10 +92,7 @@ class ExportableClassMixin(object, metaclass=ABCMeta):
                 try:
                     this_is_same = bool(mine == theirs)
                 except Exception:
-                    try:
-                        this_is_same = np.all(mine == theirs)
-                    except Exception:
-                        this_is_same = False
+                    this_is_same = np.all(mine == theirs)
                 same &= this_is_same
                 if not this_is_same:
                     loguru.logger.info(
