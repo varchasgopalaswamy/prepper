@@ -113,8 +113,14 @@ class cached_property(object):
     def __get__(self, obj, cls):
         if obj is None:
             return self
-        value = obj.__dict__[self.func.__name__] = self.func(obj)
-        return value
+
+        qualname = self.func.__qualname__
+        if qualname in obj.__dict__:
+            return obj.__dict__[qualname]
+        else:
+            obj.__dict__[self.func.__qualname__] = self.func(obj)
+
+        return obj.__dict__[self.func.__qualname__]
 
 
 def local_cache(report=False, export=False):

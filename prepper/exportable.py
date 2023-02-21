@@ -252,8 +252,9 @@ class ExportableClassMixin(object, metaclass=ABCMeta):
             for symbol in self._exportable_functions:
                 # This means it's a cached property, so save it
                 if symbol in self.__dict__:
-                    value = self.__dict__[symbol]
-                    self._dump_h5_entry(file, f"{group}/{symbol}", value)
+                    classname, value = self.__dict__[symbol].split(".")
+                    if classname == self.__class__.__name__:
+                        self._dump_h5_entry(file, f"{group}/{symbol}", value)
                 # This means its a cached function call, so save each call
                 elif make_cache_name(symbol) in self.__dict__:
                     function_cache = self.__dict__[make_cache_name(symbol)]
