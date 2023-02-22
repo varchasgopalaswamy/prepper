@@ -272,6 +272,50 @@ def load_exportable_class(file: str, group: str) -> Type[ExportableClassMixin]:
         return class_definition.from_hdf5(file, group)
 
 
+#### python enum ####
+@_register(DEFAULT_H5_WRITERS, lambda x: isinstance(x, Enum))
+def dump_python_enum(
+    file: str, group: str, value: Type[Enum]
+) -> Dict[str, Any]:
+    attributes = {}
+    with h5py.File(file, mode="a", track_order=True) as hdf5_file:
+        new_entry = hdf5_file.require_group(group)
+        new_entry["enum_class"] = str(value.__class__.__name__)
+        new_entry["enum_module"] = str(value.__class__.__module__)
+        new_entry["enum_value"] = str(value.name)
+        attributes["type"] = H5StoreTypes.Enumerator.name
+        attributes["timestamp"] = datetime.datetime.now().isoformat()
+
+    return attributes
+
+
+@_register(DEFAULT_H5_LOADERS, H5StoreTypes.Enumerator)
+def load_python_enum(file: str, group: str) -> Type[Enum]:
+    with h5py.File(file, "r", track_order=True) as hdf5_file:
+        entry = hdf5_file[group]
+        try:
+            enum_class_ = entry["enum_class"][()].decode("utf-8")
+            enum_value_ = entry["enum_value"][()].decode("utf-8")
+            enum_module_ = entry["enum_module"][()].decode("utf-8")
+        except KeyError:
+            msg = f"Failed to load {group} because it was a enum entry, but didnt have the enum name or value!"
+            loguru.logger.error(msg)
+            raise H5StoreException(msg)
+
+        enum_module = importlib.import_module(enum_module_)
+        enum_class = getattr(enum_module, enum_class_, None)
+        if enum_class is None:
+            msg = f"Failed to load {group} because it was a enum entry, but the enum module {enum_module_} did not have the enum class {enum_class_}!"
+            loguru.logger.error(msg)
+            raise H5StoreException(msg)
+        try:
+            return enum_class[enum_value_]
+        except KeyError:
+            msg = f"Failed to load {group} because it was a enum entry, but the enum class {enum_class_} did not have the enum entry {enum_value_}!"
+            loguru.logger.error(msg)
+            raise H5StoreException(msg)
+
+
 #### generic HDF5 dataset ####
 @_register(
     DEFAULT_H5_WRITERS,
@@ -483,47 +527,3 @@ def load_generic_sequence(file: str, group: str) -> List[Any]:
 
             results.append(item_result)
     return results
-
-
-#### python enum ####
-@_register(DEFAULT_H5_WRITERS, lambda x: isinstance(x, Enum))
-def dump_python_enum(
-    file: str, group: str, value: Type[Enum]
-) -> Dict[str, Any]:
-    attributes = {}
-    with h5py.File(file, mode="a", track_order=True) as hdf5_file:
-        new_entry = hdf5_file.require_group(group)
-        new_entry["enum_class"] = str(value.__class__.__name__)
-        new_entry["enum_module"] = str(value.__class__.__module__)
-        new_entry["enum_value"] = str(value.name)
-        attributes["type"] = H5StoreTypes.Enumerator.name
-        attributes["timestamp"] = datetime.datetime.now().isoformat()
-
-    return attributes
-
-
-@_register(DEFAULT_H5_LOADERS, H5StoreTypes.Enumerator)
-def load_python_enum(file: str, group: str) -> Type[Enum]:
-    with h5py.File(file, "r", track_order=True) as hdf5_file:
-        entry = hdf5_file[group]
-        try:
-            enum_class_ = entry["enum_class"][()].decode("utf-8")
-            enum_value_ = entry["enum_value"][()].decode("utf-8")
-            enum_module_ = entry["enum_module"][()].decode("utf-8")
-        except KeyError:
-            msg = f"Failed to load {group} because it was a enum entry, but didnt have the enum name or value!"
-            loguru.logger.error(msg)
-            raise H5StoreException(msg)
-
-        enum_module = importlib.import_module(enum_module_)
-        enum_class = getattr(enum_module, enum_class_, None)
-        if enum_class is None:
-            msg = f"Failed to load {group} because it was a enum entry, but the enum module {enum_module_} did not have the enum class {enum_class_}!"
-            loguru.logger.error(msg)
-            raise H5StoreException(msg)
-        try:
-            return enum_class[enum_value_]
-        except KeyError:
-            msg = f"Failed to load {group} because it was a enum entry, but the enum class {enum_class_} did not have the enum entry {enum_value_}!"
-            loguru.logger.error(msg)
-            raise H5StoreException(msg)

@@ -1,27 +1,30 @@
-[tool.poetry]
+[project]
 name = "prepper"
-version = "0.1.1"
+authors = [
+    {name = "Varchas Gopalaswamy", email = "vgop@lle.rochester.edu"},
+]
 description = "Allows python objects to be stored and loaded from an HDF5 file in a language-agnostic manner"
-authors = ["Varchas Gopalaswamy <vgop@lle.rochester.edu>"]
-license = "MIT"
 readme = "README.md"
-
-[tool.poetry.dependencies]
-python = ">=3.8,<3.10"
-h5py = "^3.8.0"
-loguru = "^0.6.0"
-aenum = "^3.1.11"
-numpy = "^1.23.5"
-
-
-[tool.poetry.dev-dependencies]
-pytest = "^5.2"
-
-
+requires-python = ">=3.8"
+license = {text = "MIT"}
+classifiers = [
+    "Programming Language :: Python :: 3",
+]
+dependencies = [
+    "h5py ~= 3.8.0",
+    "loguru >= 0.6.0",
+    "aenum ~= 3.1.11",
+    "numpy ~= 1.23.5",
+    "pandas ~= 1.5.1",
+]
+dynamic = ["version"]
 
 [build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+requires = ["setuptools >= 67.0.0", "setuptools_scm[toml]>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools_scm]
+write_to = "prepper/_version.py"
 
 
 [tool.black]

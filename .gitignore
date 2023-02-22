@@ -182,3 +182,4 @@ lotus/utilities/filters/\.#sfc3\.csv
 # Don't store this file
 core.[0-9]*
 lotus/query/resource_blob_SHAs.csv
+**/_version.py
