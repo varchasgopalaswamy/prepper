@@ -23,7 +23,7 @@ jobs:
           pip install .
       - name: Lint with pylint
         run: |
-          pylint
+          pylint prepper
       - name: Test with pytest
         run: |
           pytest
