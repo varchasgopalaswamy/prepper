@@ -361,6 +361,7 @@ def load_python_enum(file: str, group: str) -> Type[Enum]:
                 for v in x
             ]
         )
+        and all([isinstance(v, type(x[0])) for v in x])
     ),
 )
 def dump_python_types_or_ndarray(
