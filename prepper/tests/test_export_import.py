@@ -16,7 +16,7 @@ from prepper import (
 )
 
 
-@saveable_class("0.0.1", save=["test_string"])
+@saveable_class("0.0.1", attributes=["test_string"])
 class SimpleSaveableClass(ExportableClassMixin):
     """
     A simple saveable class, used to test saving as an attribute of another
@@ -105,7 +105,7 @@ def test_export_import(var, tmp_path):
     Test that you can export and import an object with every supported type
     """
 
-    @saveable_class("0.0.1", save=["test_var"])
+    @saveable_class("0.0.1", attributes=["test_var"])
     class ThisClassHasAVariable(ExportableClassMixin):
         def __init__(self):
             self.test_var = var
@@ -126,9 +126,11 @@ def test_export_import(var, tmp_path):
     # TODO: Confirm that we actually want to be saving python int and float
     # as numpy types
     if type(var) == int:
-        assert type(obj2.test_var) == np.int32
+        assert type(obj2.test_var) == np.int32 or type(obj2.test_var) == int
     elif type(var) == float:
-        assert type(obj2.test_var) == np.float64
+        assert (
+            type(obj2.test_var) == np.float64 or type(obj2.test_var) == float
+        )
     else:
         assert type(obj2.test_var) == type(var)
 
@@ -139,7 +141,7 @@ def test_export_hdf5_format(var, tmp_path):
     Test that you can export and import an object with every supported type
     """
 
-    @saveable_class("0.0.1", save=["test_var"])
+    @saveable_class("0.0.1", attributes=["test_var"])
     class ThisClassHasAVariable(ExportableClassMixin):
         def __init__(self):
             self.test_var = var
@@ -148,11 +150,13 @@ def test_export_hdf5_format(var, tmp_path):
 
     obj1 = ThisClassHasAVariable()
     obj1.to_hdf5(path)
-
+    obj2 = ThisClassHasAVariable.from_hdf5(path)
+    assert obj1 == obj2
     with h5py.File(path, "r") as f:
         # Test that the base level attributes are all there
         ensure_required_attributes(obj1, f)
 
+        print(f.keys())
         # Test that the exportable attribute was exported
         assert "test_var" in f.keys()
 
@@ -167,7 +171,7 @@ def test_error_during_export(var, error, msg, tmp_path):
     """
     path = os.path.join(tmp_path, "tmp.hdf5")
 
-    @saveable_class("0.0.1", save=["test_var"])
+    @saveable_class("0.0.1", attributes=["test_var"])
     class ThisClassHasABadVariable(ExportableClassMixin):
         def __init__(self):
             self.test_var = var
@@ -183,7 +187,7 @@ def test_export_import_property(tmp_path):
     Test exporting and importing a cached property
     """
 
-    @saveable_class("0.0.1", save=["answer"])
+    @saveable_class("0.0.1", attributes=["answer"])
     class ClassWithProperty(ExportableClassMixin):
         """
         This class has a cached property
@@ -213,7 +217,7 @@ def test_export_import_cached_property(tmp_path):
     Test exporting and importing a cached property
     """
 
-    @saveable_class("0.0.1", save=["expensive_fcn"])
+    @saveable_class("0.0.1", attributes=["expensive_fcn"])
     class ClassWithCachedProperty(ExportableClassMixin):
         """
         This class has a cached property

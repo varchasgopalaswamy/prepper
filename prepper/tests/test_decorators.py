@@ -70,24 +70,31 @@ def test_saveable_class():
 
     decorator = saveable_class(
         api_version="0.0.1",
-        attributes=["test_int", "test_string"],
+        attributes=["test_string"],
         functions=["square"],
     )
-    baddecorator = saveable_class(
-        api_version="0.0.1",
-        attributes=["test_int", "test_string"],
-        functions=["square2"],
-    )
+    bad_decorators = [
+        saveable_class(
+            api_version="0.0.1",
+            attributes=["test_string"],
+            functions=["square2"],
+        ),
+        saveable_class(
+            api_version="0.0.1",
+            attributes=["test_int", "test_string"],
+            functions=["square"],
+        ),
+    ]
     pytest.raises(ValueError, decorator, NotASaveableClass)
     decorated = decorator(SimpleSaveableClass)
     assert decorated._exportable_functions == set(
         ["SimpleSaveableClass.square"]
     )
     assert decorated._exportable_attributes == set(
-        ["SimpleSaveableClass.test_int", "SimpleSaveableClass.test_string"]
+        ["SimpleSaveableClass.test_string"]
     )
-
-    pytest.raises(ValueError, baddecorator, SimpleSaveableClass)
+    for d in bad_decorators:
+        pytest.raises(ValueError, d, SimpleSaveableClass)
 
 
 def test_cached_property():
@@ -130,6 +137,8 @@ def test_local_cache(x):
     for x_ in x:
         assert test_class2.square(x_) == 2 * x_**2
         key = _make_key((x_,), {})
+
+        # Make sure the cache is stores the parent and child calls
         assert (
             test_class2.__dict__["__cache_SimpleSaveableClass.square__"][key]
             == x_**2

@@ -15,6 +15,7 @@ import loguru
 import numpy as np
 
 from prepper import H5StoreException
+from prepper.caching import _HashedSeq, _make_key
 from prepper.enums import H5StoreTypes
 from prepper.exportable import ExportableClassMixin
 from prepper.utils import check_equality
@@ -32,6 +33,8 @@ __all__ = [
 ]
 
 _NONE_TYPE_SENTINEL = "__python_None_sentinel__"
+_EMPTY_TYPE_SENTINEL = "__python_Empty_sentinel__"
+
 PYTHON_BASIC_TYPES = (int, float, str)
 NUMPY_NUMERIC_TYPES = (np.int32, np.int64, np.float32, np.float64)
 DEFAULT_H5_WRITERS = {}
@@ -162,7 +165,9 @@ def load_custom_h5_type(file: str, group: str, entry_type: H5StoreTypes):
     for loader_type, loader in loaders.values():
         if loader_type == entry_type:
             return loader(file, group)
-    msg = f"No loader found for custom HDF5 store type {entry_type}!"
+    msg = (
+        f"No loader found for group {group} with HDF5 store type {entry_type}!"
+    )
     loguru.logger.error(msg, exc_info=True)
     raise H5StoreException(msg)
 
@@ -210,6 +215,30 @@ def dump_None(
 @_register(DEFAULT_H5_LOADERS, H5StoreTypes.Null)
 def load_None(file: str, group: str):
     return None
+
+
+#### FunctionCache ####
+@_register(DEFAULT_H5_LOADERS, H5StoreTypes.FunctionCache)
+def load_hdf5_function_cache(file: str, group: str) -> Dict[_HashedSeq, Any]:
+    function_calls = {}
+    with h5py.File(file, mode="r", track_order=True) as hdf5_file:
+        function_group = hdf5_file[group]
+        for function_call in function_group:
+            arg_group_name = f"{group}/{function_call}/args"
+            kwarg_group_name = f"{group}/{function_call}/kwargs"
+            value_group_name = f"{group}/{function_call}/value"
+            _, args = ExportableClassMixin._load_h5_entry(file, arg_group_name)
+            _, kwargs = ExportableClassMixin._load_h5_entry(
+                file, kwarg_group_name
+            )
+            _, value = ExportableClassMixin._load_h5_entry(
+                file, value_group_name
+            )
+
+            key = _make_key(tuple(args), dict(sorted(kwargs.items())))
+            function_calls[key] = value
+
+    return function_calls
 
 
 #### HDF5 Group ######
@@ -524,7 +553,7 @@ def dump_generic_sequence(
                         file, group_name, existing_groups=existing_groups
                     )
                 else:
-                    ExportableClassMixin._dump_h5_entry(
+                    existing_groups = ExportableClassMixin._dump_h5_entry(
                         file,
                         group_name,
                         this_value,

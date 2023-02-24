@@ -66,10 +66,9 @@ def saveable_class(
 
         for name, clsname in attribute_names.items():
             if not hasattr(clsname, name):
-                loguru.logger.warning(
-                    f"{clsname} does not have attribute {name}. This may mean that {name} is missing (which is an error), or a dynamically assigned attribute. Consider making {name} a property to avoid this warning."
+                raise ValueError(
+                    f"{clsname} does not have property/attribute {name} at runtime. Dynamically added attributes are not supported."
                 )
-
             exportable_attributes.append(f"{clsname.__name__}.{name}")
         for name, clsname in function_names.items():
             if not hasattr(clsname, name):
@@ -136,7 +135,7 @@ class ExportableClassMixin(object, metaclass=ABCMeta):
         for attr in self._exportable_attributes:
             mine = getattr(self, attr, None)
             theirs = getattr(other, attr, None)
-            this_is_same = check_equality(mine, theirs)
+            this_is_same = check_equality(mine, theirs, log=True)
             same &= this_is_same
 
         # Check that cached function calls are the same
@@ -146,7 +145,7 @@ class ExportableClassMixin(object, metaclass=ABCMeta):
 
                 mine = self.__dict__.get(symbol, None)
                 theirs = other.__dict__.get(symbol, None)
-                this_is_same = check_equality(mine, theirs)
+                this_is_same = check_equality(mine, theirs, log=True)
                 same &= this_is_same
         return bool(same)
 
@@ -186,6 +185,7 @@ class ExportableClassMixin(object, metaclass=ABCMeta):
                 msg = f"Failed to load {group} because it does not exist!"
                 loguru.logger.error(msg)
                 raise H5StoreException(msg)
+
             base = hdf5_file[group]
             entry_type = ExportableClassMixin._get_group_type(base)
             if entry_type != H5StoreTypes.PythonClass:
@@ -205,17 +205,20 @@ class ExportableClassMixin(object, metaclass=ABCMeta):
                 raise H5StoreException(msg)
 
             for entry_name in base:
+                # The class constructor should have already been read
+                if entry_name == self.__class__.__name__:
+                    continue
+
                 entry_type, entry_value = self._load_h5_entry(
                     file, f"{group}/{entry_name}"
                 )
+                binding_name = ExportableClassMixin._get_bound_name(
+                    file, f"{group}/{entry_name}"
+                )
+                key_name = f"{binding_name}.{entry_name}"
                 if entry_type == H5StoreTypes.FunctionCache:
-                    fname = make_cache_name(entry_name)
-                    if fname not in self.__dict__:
-                        self.__dict__[fname] = {}
-                    for key, value in entry_value:
-                        self.__dict__[fname][key] = value
-                else:
-                    self.__dict__[entry_name] = entry_value
+                    key_name = make_cache_name(key_name)
+                self.__dict__[key_name] = entry_value
 
     @staticmethod
     def _load_h5_entry(file: str, group: str) -> Tuple[H5StoreTypes, Any]:
@@ -305,65 +308,70 @@ class ExportableClassMixin(object, metaclass=ABCMeta):
             )
 
         # Save the attributes, if populated
-        for attribute in self._exportable_attributes:
-            if hasattr(self, attribute):
+        for symbol in self._exportable_attributes:
+            bound_class, attrname = symbol.split(".")
+            if symbol in self.__dict__:
                 existing_groups = self._dump_h5_entry(
                     file,
-                    f"{group}/{attribute}",
-                    getattr(self, attribute),
+                    f"{group}/{attrname}",
+                    self.__dict__[symbol],
                     existing_groups,
+                    attributes={"bound_class": bound_class},
                 )
-        # Save the marked cached properties and function calls
-        if hasattr(self, "_exportable_functions"):
-            for symbol in self._exportable_functions:
-                # This means it's a cached property, so save it
-                if symbol in self.__dict__:
-                    classname, value = self.__dict__[symbol].split(".")
-                    if classname == self.__class__.__name__:
-                        existing_groups = self._dump_h5_entry(
-                            file, f"{group}/{symbol}", value, existing_groups
-                        )
-                # This means its a cached function call, so save each call
-                elif make_cache_name(symbol) in self.__dict__:
-                    function_cache = self.__dict__[make_cache_name(symbol)]
-                    with h5py.File(
-                        file, mode="a", track_order=True
-                    ) as hdf5_file:
-                        my_group = hdf5_file.require_group(group)
-                        function_group = my_group.require_group(symbol)
-                        write_h5_attr(
-                            function_group,
-                            "type",
-                            H5StoreTypes.FunctionCache.name,
-                        )
+
+        for function_symbol in self._exportable_functions:
+            bound_class, fname = function_symbol.split(".")
+            cache_symbol = make_cache_name(function_symbol)
+            if symbol in self.__dict__:
+                function_cache = self.__dict__[cache_symbol]
+                with h5py.File(file, mode="a", track_order=True) as hdf5_file:
+                    my_group = hdf5_file.require_group(group)
+                    function_group = my_group.require_group(fname)
+                    write_h5_attr(
+                        function_group,
+                        "type",
+                        H5StoreTypes.FunctionCache.name,
+                    )
+
+                    write_h5_attr(
+                        function_group,
+                        "bound_class",
+                        bound_class,
+                    )
 
                     n_cache_items = max(len(function_cache), 1)
                     pad_digits = max(int(np.log10(n_cache_items)), 0) + 1
-                    for idx, (key, value) in enumerate(
-                        self.__dict__[make_cache_name(symbol)].items()
-                    ):
+                    for idx, (key, value) in enumerate(function_cache.items()):
                         pad_number = str(idx + 1).zfill(pad_digits)
                         key_args, key_kwargs = break_key(key)
-                        if len(key_args) == 1 ^ len(key_kwargs) == 1:
-                            if len(key_args) == 1:
-                                group_name = f"{group}/{symbol}/{key_args[0]}"
-                            else:
-                                group_name = f"{group}/{symbol}/{key_kwargs.values()[0]}"
-                        else:
-                            group_name = (
-                                f"{group}/{symbol}/{symbol}_call{pad_number}"
-                            )
-                        attrs = {"call_args": key_args}
-                        for k, v in key_kwargs.items():
-                            attrs[f"call_kw_{k}"] = v
+                        call_group_name = (
+                            f"{group}/{fname}/{fname}_call{pad_number}"
+                        )
+                        arg_group_name = f"{call_group_name}/args"
+                        kwarg_group_name = f"{call_group_name}/kwargs"
+                        value_group_name = f"{call_group_name}/value"
+                        # Write the function call arguments
                         existing_groups = self._dump_h5_entry(
                             file,
-                            group_name,
-                            value,
+                            arg_group_name,
+                            list(key_args),
                             existing_groups,
-                            attributes=attrs,
+                        )
+                        # Write the function call keyword arguments
+                        existing_groups = self._dump_h5_entry(
+                            file,
+                            kwarg_group_name,
+                            key_kwargs,
+                            existing_groups,
                         )
 
+                        # Write the function call value
+                        existing_groups = self._dump_h5_entry(
+                            file,
+                            value_group_name,
+                            value,
+                            existing_groups,
+                        )
         return existing_groups
 
     @staticmethod
@@ -408,7 +416,7 @@ class ExportableClassMixin(object, metaclass=ABCMeta):
         try:
             entry_type = group.attrs["type"]
         except KeyError:
-            msg = f"Failed to load {group} because the group type was not stored!"
+            msg = f"Failed to load {group} because the group type was not stored! Available attrs are {list(group.attrs.keys())}"
             loguru.logger.error(msg)
             raise H5StoreException(msg)
         try:
@@ -421,6 +429,19 @@ class ExportableClassMixin(object, metaclass=ABCMeta):
             loguru.logger.error(msg)
             raise H5StoreException(msg)
         return entry_type
+
+    @staticmethod
+    def _get_bound_name(file, groupname):
+        with h5py.File(file, mode="r", track_order=True) as hdf5_file:
+            group = hdf5_file[groupname]
+            try:
+                entry_type = group.attrs["bound_class"]
+            except KeyError:
+                msg = f"Failed to load {group} because the group bound_class was not stored! Available attrs are {list(group.attrs.keys())}"
+                loguru.logger.error(msg)
+                raise H5StoreException(msg)
+
+            return entry_type
 
 
 if __name__ == "__main__":
