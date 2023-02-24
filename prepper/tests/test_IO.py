@@ -41,7 +41,9 @@ class SimpleSaveableClass(ExportableClassMixin):
         return self.a * factor
 
 
-def roundtrip(obj: ExportableClassMixin):
+def roundtrip(obj: ExportableClassMixin, should_not_be_saved=None):
+    if should_not_be_saved is None:
+        should_not_be_saved = []
     with tempfile.TemporaryDirectory() as tmpdir:
         filename = os.path.join(tmpdir, "test.hdf5")
         obj.to_hdf5(filename)
@@ -51,14 +53,56 @@ def roundtrip(obj: ExportableClassMixin):
             ensure_required_attributes(obj, hdf5_file)
             # Check that all the keys have been written
             for key in obj._exportable_functions:
-                assert key.split(".")[1] in hdf5_file
-            for key in obj._exportable_attributes:
-                assert key.split(".")[1] in hdf5_file
+                if key.split(".")[1] in should_not_be_saved:
+                    assert key.split(".")[1] not in hdf5_file
+                else:
+                    assert key.split(".")[1] in hdf5_file
 
+            for key in obj._exportable_attributes:
+                if key.split(".")[1] in should_not_be_saved:
+                    assert key.split(".")[1] not in hdf5_file
+                else:
+                    assert key.split(".")[1] in hdf5_file
         new_obj = obj.from_hdf5(filename)
 
     assert obj == new_obj
     return new_obj
+
+
+@given(
+    hnp.arrays(
+        elements=strategies.floats(
+            allow_nan=False, allow_infinity=False, width=32
+        ),
+        shape=hnp.array_shapes(min_dims=1, max_dims=4),
+        dtype=float,
+    )
+)
+def test_cached_property(x):
+
+    test_class = SimpleSaveableClass(x)
+    new_class = roundtrip(test_class, should_not_be_saved=["a", "mult"])
+
+
+@given(
+    strategies.lists(
+        strategies.one_of(
+            strategies.integers(min_value=-100, max_value=100),
+            strategies.floats(allow_nan=False, allow_infinity=False, width=32),
+            strategies.text(
+                min_size=1,
+                alphabet=strategies.characters(
+                    blacklist_characters="\x00", blacklist_categories=("Cs",)
+                ),
+            ),
+        ),
+        min_size=1,
+    )
+)
+def test_with_heterogenous_list(x):
+    test_class = SimpleSaveableClass(x)
+    _ = test_class.mult(2)
+    new_class = roundtrip(test_class)
 
 
 @given(
