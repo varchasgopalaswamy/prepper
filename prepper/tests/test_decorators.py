@@ -1,11 +1,6 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-import inspect
-import os
-
-import h5py
-import numpy as np
 import pytest
 from hypothesis import given, strategies
 from hypothesis.extra import numpy as hnp
@@ -67,7 +62,6 @@ class NotASaveableClass:
 
 
 def test_saveable_class():
-
     decorator = saveable_class(
         api_version="0.0.1",
         attributes=["test_string"],
@@ -98,7 +92,6 @@ def test_saveable_class():
 
 
 def test_cached_property():
-
     test_class = SimpleSaveableClass2()
 
     # Make sure __dict__ doesn't have the cached property
@@ -131,7 +124,6 @@ def test_cached_property():
     )
 )
 def test_local_cache(x):
-
     test_class2 = SimpleSaveableClass2()
 
     for x_ in x:

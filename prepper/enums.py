@@ -1,7 +1,14 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-from aenum import auto, Enum, extend_enum, unique
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from enum import Enum, unique
+else:
+    from aenum import Enum, extend_enum, unique
+
+from aenum import extend_enum
 
 __all__ = ["H5StoreTypes", "add_enum_item"]
 
@@ -19,10 +26,5 @@ class H5StoreTypes(Enum):
     Enumerator = 9
 
 
-N_PREPPER_ENUMS = 9
-
-
 def add_enum_item(name: str):
-    global N_PREPPER_ENUMS
-    N_PREPPER_ENUMS += 1
-    extend_enum(H5StoreTypes, name, N_PREPPER_ENUMS)
+    extend_enum(H5StoreTypes, name, len(H5StoreTypes) + 1)

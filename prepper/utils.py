@@ -5,54 +5,57 @@ import loguru
 import numpy as np
 
 
-def check_equality(a, b, log=False):
+def check_equality(value1, value2, log=False):
     """
     Check if two objects are equal
     """
-    from prepper.exportable import ExportableClassMixin
 
     # Just try to do a comparison
     try:
-        same = bool(a == b)
+        same = bool(value1 == value2)
         if not same:
             if log:
-                loguru.logger.debug(f"Values are different: {a} and {b}")
+                loguru.logger.debug(
+                    f"Values are different: {value1} and {value2}"
+                )
         return same
     except Exception:
         # Maybe it's a numpy array
         # check if the dimensions are compatible
         try:
-            if np.ndim(a) != np.ndim(b):
+            if np.ndim(value1) != np.ndim(value2):
                 if log:
                     loguru.logger.debug(
-                        f"Dims are different: {np.ndim(a)} and {np.ndim(b)} for values {a} and {b}"
+                        f"Dims are different: {np.ndim(value1)} and {np.ndim(value2)} for values {value1} and {value2}"
                     )
                 return False
-            if hasattr(a, "units") and not a.is_compatible_with(b):
+            if hasattr(value1, "units") and not value1.is_compatible_with(
+                value2
+            ):
                 if log:
                     loguru.logger.debug(
-                        f"Units are different: {getattr(a,'units','')} and {getattr(b,'units','')}"
+                        f"Units are different: {getattr(value1,'units','')} and {getattr(value2,'units','')}"
                     )
                 return False
             # do a numpy comparison
             try:
-                same = np.allclose(a, b)
+                same = np.allclose(value1, value2)
             except Exception:
-                same = all(a == b)
+                same = all(value1 == value2)
             if not same:
                 if log:
                     loguru.logger.debug(
-                        f"Numpy check: values are different: {a} and {b}"
+                        f"Numpy check: values are different: {value1} and {value2}"
                     )
             return same
-        except Exception:
-            if type(a) != type(b):
+        except Exception as e:
+            if not isinstance(value1, type(value2)):
                 if log:
                     loguru.logger.debug(
-                        f"Types are different: {type(a)} and {type(b)} for values {a} and {b}"
+                        f"Types are different: {type(value1)} and {type(value2)} for values {value1} and {value2}"
                     )
                 return False
-            else:
-                raise ValueError(
-                    f"Cannot compare {a} and {b} of type {type(a)} and {type(b)}"
-                )
+
+            raise ValueError(
+                f"Cannot compare {value1} and {value2} of type {type(value1)} and {type(value2)}"
+            ) from e

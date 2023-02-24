@@ -5,10 +5,7 @@ import inspect
 import os
 import tempfile
 
-import attr
 import h5py
-import numpy as np
-import pytest
 from hypothesis import given, strategies
 from hypothesis.extra import numpy as hnp
 
@@ -79,7 +76,6 @@ def roundtrip(obj: ExportableClassMixin, should_not_be_saved=None):
     )
 )
 def test_cached_property(x):
-
     test_class = SimpleSaveableClass(x)
     new_class = roundtrip(test_class, should_not_be_saved=["a", "mult"])
 
@@ -132,7 +128,6 @@ def test_with_str_list(x):
     )
 )
 def test_with_floats(x):
-
     test_class = SimpleSaveableClass(x)
     _ = test_class.mult(2)
     new_class = roundtrip(test_class)
@@ -146,7 +141,6 @@ def test_with_floats(x):
     )
 )
 def test_with_ints(x):
-
     test_class = SimpleSaveableClass(x)
     _ = test_class.mult(2)
     new_class = roundtrip(test_class)

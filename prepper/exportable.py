@@ -39,7 +39,6 @@ def saveable_class(
         functions = []
 
     def decorator(cls: ExportableClassMixin):
-
         if not issubclass(cls, ExportableClassMixin):
             raise ValueError(
                 "Only subclasses of ExportableClassMixin can be decorated with saveable_class"
@@ -84,7 +83,7 @@ def saveable_class(
     return decorator
 
 
-class ExportableClassMixin(object, metaclass=ABCMeta):
+class ExportableClassMixin(metaclass=ABCMeta):
     """
     Allows the class to be saved and loaded from an HDF5 file
 
@@ -112,7 +111,7 @@ class ExportableClassMixin(object, metaclass=ABCMeta):
         sig = signature(instance.__init__)
         bound_args = sig.bind(*args, **kwargs)
         # bound_args.apply_defaults()
-        for i, (key, value) in enumerate(bound_args.arguments.items()):
+        for _, (key, value) in enumerate(bound_args.arguments.items()):
             if sig.parameters[key].kind == Parameter.POSITIONAL_ONLY:
                 raise ValueError(
                     "Cannot save arguments that are positional only!"
@@ -126,8 +125,7 @@ class ExportableClassMixin(object, metaclass=ABCMeta):
         return instance
 
     def __eq__(self, other) -> bool:
-
-        if type(self) != type(other):
+        if not isinstance(self, type(other)):
             return False
 
         same = True
@@ -195,10 +193,10 @@ class ExportableClassMixin(object, metaclass=ABCMeta):
 
             try:
                 class_name = read_h5_attr(base, "class")
-            except KeyError:
+            except KeyError as exc:
                 msg = f"Failed to load {group} because the class name was not stored!"
                 loguru.logger.error(msg)
-                raise H5StoreException(msg)
+                raise H5StoreException(msg) from exc
             if class_name != self.__class__.__name__:
                 msg = f"Failed to load {group} because the stored class name ({class_name}) is not the same as the loading class ({self.__class__.__name__})!"
                 loguru.logger.error(msg)
@@ -266,13 +264,7 @@ class ExportableClassMixin(object, metaclass=ABCMeta):
         existing_groups: Dict[str, Any],
         attributes=None,
     ):
-        from prepper.io_handlers import (
-            dump_class_constructor,
-            dump_custom_h5_type,
-            load_custom_h5_type,
-            read_h5_attr,
-            write_h5_attr,
-        )
+        from prepper.io_handlers import dump_class_constructor, write_h5_attr
 
         existing_groups[group] = self
 
@@ -281,7 +273,7 @@ class ExportableClassMixin(object, metaclass=ABCMeta):
         # Write this class' metadata
         with h5py.File(file, mode="a", track_order=True) as hdf5_file:
             my_group = hdf5_file.require_group(group)
-            code_name = self.__class__.__module__.split(".")[0]
+            code_name = self.__class__.__module__.split(".", maxsplit=1)[0]
             attributes["module"] = self.__class__.__module__
             attributes["class"] = self.__class__.__name__
             attributes["timestamp"] = datetime.datetime.now().isoformat()
@@ -322,7 +314,7 @@ class ExportableClassMixin(object, metaclass=ABCMeta):
         for function_symbol in self._exportable_functions:
             bound_class, fname = function_symbol.split(".")
             cache_symbol = make_cache_name(function_symbol)
-            if symbol in self.__dict__:
+            if cache_symbol in self.__dict__:
                 function_cache = self.__dict__[cache_symbol]
                 with h5py.File(file, mode="a", track_order=True) as hdf5_file:
                     my_group = hdf5_file.require_group(group)
@@ -392,10 +384,10 @@ class ExportableClassMixin(object, metaclass=ABCMeta):
             existing_groups = dump_custom_h5_type(
                 file, entry_name, value, existing_groups
             )
-        except H5StoreException:
+        except H5StoreException as exc:
             msg = f"Group {entry_name} is an object of type {type(value)} that does not support being saved to an HDF5 file!"
             loguru.logger.error(msg, exc_info=True)
-            raise ValueError(msg)
+            raise ValueError(msg) from exc
 
         # Add any attributes that were needed
         with h5py.File(file, mode="a", track_order=True) as hdf5_file:
@@ -415,19 +407,19 @@ class ExportableClassMixin(object, metaclass=ABCMeta):
     def _get_group_type(group):
         try:
             entry_type = group.attrs["type"]
-        except KeyError:
+        except KeyError as exc:
             msg = f"Failed to load {group} because the group type was not stored! Available attrs are {list(group.attrs.keys())}"
             loguru.logger.error(msg)
-            raise H5StoreException(msg)
+            raise H5StoreException(msg) from exc
         try:
             entry_type = H5StoreTypes[group.attrs["type"]]
-        except (KeyError, TypeError):
+        except (KeyError, TypeError) as exc:
             msg = (
                 f"Failed to load {group} because the group type is not in the enumeration of valid types! Valid types are "
                 + ", ".join([e.name for e in H5StoreTypes])
             )
             loguru.logger.error(msg)
-            raise H5StoreException(msg)
+            raise H5StoreException(msg) from exc
         return entry_type
 
     @staticmethod
@@ -436,10 +428,10 @@ class ExportableClassMixin(object, metaclass=ABCMeta):
             group = hdf5_file[groupname]
             try:
                 entry_type = group.attrs["bound_class"]
-            except KeyError:
+            except KeyError as exc:
                 msg = f"Failed to load {group} because the group bound_class was not stored! Available attrs are {list(group.attrs.keys())}"
                 loguru.logger.error(msg)
-                raise H5StoreException(msg)
+                raise H5StoreException(msg) from exc
 
             return entry_type
 
@@ -447,7 +439,9 @@ class ExportableClassMixin(object, metaclass=ABCMeta):
 if __name__ == "__main__":
     from prepper import ExportableClassMixin, saveable_class
 
-    @saveable_class("0.0.1", save=["test_string", "test_array", "test_array2"])
+    @saveable_class(
+        "0.0.1", attributes=["test_string", "test_array", "test_array2"]
+    )
     class SimpleSaveableClass(ExportableClassMixin):
         """
         A simple saveable class, used to test saving as an attribute of another
@@ -455,9 +449,10 @@ if __name__ == "__main__":
         """
 
         def __init__(self):
+            super().__init__()
             self.test_string = "test string SimpleSaveableClass"
             self.test_array = np.random.random(size=(1000, 1000))
             self.test_array2 = self.test_array
 
-    self = SimpleSaveableClass()
-    self.to_hdf5("/b1/vgop/test.hdf5")
+    test_instance = SimpleSaveableClass()
+    test_instance.to_hdf5("/b1/vgop/test.hdf5")

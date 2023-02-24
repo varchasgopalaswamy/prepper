@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import functools
-from functools import update_wrapper, wraps
+from functools import update_wrapper
 
 from numpy import ndarray
 
@@ -22,7 +22,7 @@ class _HashedSeq(list):
     the key multiple times on a cache miss.
     """
 
-    __slots__ = "hashvalue"
+    __slots__ = ["hashvalue"]
 
     def __init__(self, tup, hash=hash):
         self[:] = tup
@@ -101,10 +101,11 @@ def _cache_wrapper(user_function):
     return wrapper
 
 
-class cached_property(object):
+class cached_property:
     """A property that is only computed once per instance and then replaces
     itself with an ordinary attribute. Deleting the attribute resets the
-    property. Implementation adapted from https://github.com/pydanny/cached-property"""
+    property. Implementation adapted from https://github.com/pydanny/cached-property
+    """
 
     def __init__(self, func):
         update_wrapper(self, func)
@@ -117,8 +118,8 @@ class cached_property(object):
         qualname = self.func.__qualname__
         if qualname in obj.__dict__:
             return obj.__dict__[qualname]
-        else:
-            obj.__dict__[self.func.__qualname__] = self.func(obj)
+
+        obj.__dict__[self.func.__qualname__] = self.func(obj)
 
         return obj.__dict__[self.func.__qualname__]
 
@@ -135,7 +136,6 @@ class local_cache:
         self.user_func = wrapped_func
 
     def __get__(self, obj, cls):
-
         partial_function = functools.update_wrapper(
             functools.partial(_cache_wrapper(self.user_func), obj),
             self.user_func,
@@ -143,7 +143,6 @@ class local_cache:
         return partial_function
 
     def __set__(self, obj, value):
-
         fname = make_cache_name(self.user_func.__qualname__)
         if fname not in obj.__dict__:
             obj.__dict__[fname] = {}
