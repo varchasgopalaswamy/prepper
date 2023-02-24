@@ -20,5 +20,4 @@ class H5StoreException(Exception):
 
 
 from .caching import cached_property, local_cache
-from .exportable import ExportableClassMixin
-from .io_handlers import saveable_class
+from .exportable import ExportableClassMixin, saveable_class

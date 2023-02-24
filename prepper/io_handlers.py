@@ -17,14 +17,13 @@ import numpy as np
 from prepper import H5StoreException
 from prepper.enums import H5StoreTypes
 from prepper.exportable import ExportableClassMixin
-
+from prepper.utils import check_equality
 __all__ = [
     "dump_custom_h5_type",
     "read_h5_attr",
     "write_h5_attr",
     "load_custom_h5_type",
     "dump_class_constructor",
-    "saveable_class",
     "register_loader",
     "register_writer",
     "get_hdf5_compression",
@@ -38,7 +37,7 @@ DEFAULT_H5_WRITERS = {}
 DEFAULT_H5_LOADERS = {}
 CUSTOM_H5_WRITERS = {}
 CUSTOM_H5_LOADERS = {}
-HDF5_COMPRESSION = {}
+HDF5_COMPRESSION = {'compression':'gzip', 'compression_opts':9, 'shuffle':True, 'fletcher32':True}
 
 
 def get_hdf5_compression():
@@ -84,33 +83,6 @@ def read_h5_attr(base: h5py.Group, name: str):
         return value
 
 
-def saveable_class(api_version: float, save: List[str] = None):
-    if save is None:
-        save = []
-
-    def decorator(cls: ExportableClassMixin):
-
-        attribute_names = [s for s in save]
-        function_names = []
-        for parent in inspect.getmro(cls):
-            if hasattr(parent, "_exportable_attributes"):
-                attribute_names += parent._exportable_attributes
-            for methodname in dir(parent):
-                method = getattr(parent, methodname)
-                if (
-                    hasattr(method, "_export_values")
-                    and methodname not in function_names
-                    and method._export_values
-                ):
-                    function_names.append(methodname)
-
-        cls._exportable_functions = set(function_names)
-        cls._exportable_attributes = set(attribute_names)
-        cls.api_version = api_version
-
-        return cls
-
-    return decorator
 
 
 def register_loader(validator):
@@ -129,33 +101,50 @@ def register_writer(validator):
     return decorator
 
 
-def dump_custom_h5_type(file: str, group: str, value: Any):
+def dump_custom_h5_type(file: str, group: str, value: Any, existing_groups:Dict[str,Any]):
     writers = {}
     writers.update(CUSTOM_H5_WRITERS)
     writers.update(DEFAULT_H5_WRITERS)
+    # Check to see if this class has already been written to the file
+    class_already_written = False
+    clone_group = None
+    for k,v in existing_groups.items():
+        try:
+            is_equal = check_equality(v, value)
+        except Exception:
+            is_equal = False
+        if is_equal:
+            class_already_written = True
+            clone_group = k # This is the group that this class is already written to
+            break
+    if class_already_written:
+        # This class has already been written to the file, so we just need to write a reference to it
+        with h5py.File(file, mode="a", track_order=True) as hdf5_file:
+            hdf5_file[group] = h5py.SoftLink(clone_group)
+        return existing_groups
+    else:
+        for validator, writer in writers.values():
+            if validator(value):
+                attrs, existing_groups = writer(file, group, value, existing_groups)
 
-    for validator, writer in writers.values():
-        if validator(value):
-            attrs = writer(file, group, value)
-
-            with h5py.File(file, mode="a", track_order=True) as hdf5_file:
-                try:
-                    entry = hdf5_file[group]
-                except KeyError:
-                    entry = hdf5_file.require_group(group)
-                for k, v in attrs.items():
+                with h5py.File(file, mode="a", track_order=True) as hdf5_file:
                     try:
-                        write_h5_attr(entry, k, v)
-                    except H5StoreException:
-                        msg = (
-                            f"Failed to write attribute {k} to group {group}!"
-                        )
-                        loguru.logger.error(msg, exc_info=True)
+                        entry = hdf5_file[group]
+                    except KeyError:
+                        entry = hdf5_file.require_group(group)
+                    for k, v in attrs.items():
+                        try:
+                            write_h5_attr(entry, k, v)
+                        except H5StoreException:
+                            msg = (
+                                f"Failed to write attribute {k} to group {group}!"
+                            )
+                            loguru.logger.error(msg, exc_info=True)
 
-            return
-    raise H5StoreException(
-        f"None of the custom HDF5 writer functions supported a value of type {type(value)}!"
-    )
+                return existing_groups
+        raise H5StoreException(
+            f"None of the custom HDF5 writer functions supported a value of type {type(value)}!"
+        )
 
 
 def load_custom_h5_type(file: str, group: str, entry_type: H5StoreTypes):
@@ -202,10 +191,10 @@ def key_to_group_name(key):
 
 #### NONE ####
 @_register(DEFAULT_H5_WRITERS, lambda x: x is None)
-def dump_None(file: str, group: str, value: None) -> Dict[str, Any]:
+def dump_None(file: str, group: str, value: None, existing_groups:Dict[str,Any]) -> Dict[str, Any]:
     attributes = {}
     attributes["type"] = H5StoreTypes.Null.name
-    return attributes
+    return attributes, existing_groups
 
 
 @_register(DEFAULT_H5_LOADERS, H5StoreTypes.Null)
@@ -219,8 +208,7 @@ def dump_hdf5_group(
     file: str,
     group: str,
     value: h5py.Group,
-    version: str = "",
-    code_name: str = "",
+    existing_groups:Dict[str,Any],
 ) -> Dict[str, Any]:
     attributes = {}
     with h5py.File(file, mode="a", track_order=True) as hdf5_file:
@@ -228,10 +216,9 @@ def dump_hdf5_group(
         value.copy(source="/", dest=new_entry, name="value")
         attributes["type"] = H5StoreTypes.HDF5Group.name
         attributes["timestamp"] = datetime.datetime.now().isoformat()
-        attributes["version"] = version
-        attributes["code"] = code_name
 
-    return attributes
+    existing_groups[group] = value
+    return attributes, existing_groups
 
 
 @_register(DEFAULT_H5_LOADERS, H5StoreTypes.HDF5Group)
@@ -245,14 +232,15 @@ def load_hdf5_group(file: str, group: str):
     DEFAULT_H5_WRITERS, lambda x: issubclass(type(x), ExportableClassMixin)
 )
 def dump_exportable_class(
-    file: str, group: str, value: Type[ExportableClassMixin]
+    file: str, group: str, value: Type[ExportableClassMixin], existing_groups:Dict[str,Any]
 ) -> Dict[str, Any]:
     attributes = {}
-    value._write_hdf5_contents(
+    existing_groups = value._write_hdf5_contents(
         file,
         group=group,
+        existing_groups=existing_groups,
     )
-    return attributes
+    return attributes, existing_groups
 
 
 @_register(DEFAULT_H5_LOADERS, H5StoreTypes.PythonClass)
@@ -275,7 +263,7 @@ def load_exportable_class(file: str, group: str) -> Type[ExportableClassMixin]:
 #### python enum ####
 @_register(DEFAULT_H5_WRITERS, lambda x: isinstance(x, Enum))
 def dump_python_enum(
-    file: str, group: str, value: Type[Enum]
+    file: str, group: str, value: Type[Enum], existing_groups:Dict[str,Any]
 ) -> Dict[str, Any]:
     attributes = {}
     with h5py.File(file, mode="a", track_order=True) as hdf5_file:
@@ -286,7 +274,7 @@ def dump_python_enum(
         attributes["type"] = H5StoreTypes.Enumerator.name
         attributes["timestamp"] = datetime.datetime.now().isoformat()
 
-    return attributes
+    return attributes, existing_groups
 
 
 @_register(DEFAULT_H5_LOADERS, H5StoreTypes.Enumerator)
@@ -334,7 +322,7 @@ def load_python_enum(file: str, group: str) -> Type[Enum]:
     ),
 )
 def dump_python_types_or_ndarray(
-    file: str, group: str, value: Any
+    file: str, group: str, value: Any, existing_groups:Dict[str,Any]
 ) -> Dict[str, Any]:
 
     attributes = {}
@@ -347,8 +335,9 @@ def dump_python_types_or_ndarray(
             raise H5StoreException(msg)
         attributes["type"] = H5StoreTypes.HDF5Dataset.name
         attributes["timestamp"] = datetime.datetime.now().isoformat()
+    existing_groups[group] = value
 
-    return attributes
+    return attributes, existing_groups
 
 
 @_register(DEFAULT_H5_LOADERS, H5StoreTypes.HDF5Dataset)
@@ -367,7 +356,7 @@ def load_python_types_or_ndarray(file: str, group: str):
 
 #### class constructor ####
 def dump_class_constructor(
-    file: str, group: str, value: ExportableClassMixin
+    file: str, group: str, value: ExportableClassMixin, existing_groups:Dict[str,Any]
 ) -> Dict[str, Any]:
     with h5py.File(file, mode="a", track_order=True) as hdf5_file:
         my_group = hdf5_file.require_group(group)
@@ -388,10 +377,10 @@ def dump_class_constructor(
                 loguru.logger.error(msg, exc_info=True)
 
     for k, v in value._constructor_args.items():
-        value._dump_h5_entry(
-            file, f"{group}/{value.__class__.__name__}/{k}", v
+        existing_groups = value._dump_h5_entry(
+            file, f"{group}/{value.__class__.__name__}/{k}", v, existing_groups=existing_groups
         )
-
+    return existing_groups
 
 @_register(DEFAULT_H5_LOADERS, H5StoreTypes.ClassConstructor)
 def load_class_constructor(file: str, group: str):
@@ -408,7 +397,7 @@ def load_class_constructor(file: str, group: str):
 
 #### python dict ####
 @_register(DEFAULT_H5_WRITERS, lambda x: isinstance(x, dict))
-def dump_dictionary(file: str, group: str, value: Any) -> Dict[str, Any]:
+def dump_dictionary(file: str, group: str, value: Dict[Any,Any], existing_groups:Dict[str,Any]) -> Dict[str, Any]:
     attributes = {}
     with h5py.File(file, mode="a", track_order=True) as hdf5_file:
         _ = hdf5_file.require_group(group)
@@ -425,28 +414,33 @@ def dump_dictionary(file: str, group: str, value: Any) -> Dict[str, Any]:
                     group_name = f"{group}/{group}_{pad_number}"
 
                 if issubclass(type(this_value), ExportableClassMixin):
-                    this_value._write_hdf5_contents(
-                        file, f"{group_name}/value"
+                    existing_groups = this_value._write_hdf5_contents(
+                        file, f"{group_name}/value",existing_groups=existing_groups
                     )
                 else:
-                    ExportableClassMixin._dump_h5_entry(
+                    existing_groups = ExportableClassMixin._dump_h5_entry(
                         file,
                         f"{group_name}/value",
                         this_value,
+                        existing_groups=existing_groups
                     )
 
                 if issubclass(type(key), ExportableClassMixin):
-                    key._write_hdf5_contents(file, f"{group_name}/key")
+                    existing_groups = key._write_hdf5_contents(file, f"{group_name}/key",existing_groups=existing_groups)
                 else:
-                    ExportableClassMixin._dump_h5_entry(
+                    existing_groups = ExportableClassMixin._dump_h5_entry(
                         file,
                         f"{group_name}/key",
                         key,
+                        existing_groups=existing_groups
                     )
 
     attributes["type"] = H5StoreTypes.Dictionary.name
     attributes["timestamp"] = datetime.datetime.now().isoformat()
-    return attributes
+
+    existing_groups[group] = value
+
+    return attributes, existing_groups
 
 
 @_register(DEFAULT_H5_LOADERS, H5StoreTypes.Dictionary)
@@ -477,7 +471,7 @@ def load_dictionary(file: str, group: str):
 #### python sequence ####
 @_register(DEFAULT_H5_WRITERS, lambda x: isinstance(x, Iterable))
 def dump_generic_sequence(
-    file: str, group: str, value: Sequence[Any]
+    file: str, group: str, value: Sequence[Any], existing_groups:Dict[str,Any]
 ) -> Dict[str, Any]:
     from prepper.exportable import ExportableClassMixin
 
@@ -492,15 +486,17 @@ def dump_generic_sequence(
                 pad_number = str(idx + 1).zfill(pad_digits)
                 group_name = f"{group}/{basename}_{pad_number}"
                 if issubclass(type(this_value), ExportableClassMixin):
-                    this_value._write_hdf5_contents(file, group_name)
+                    existing_groups = this_value._write_hdf5_contents(file, group_name,existing_groups=existing_groups)
                 else:
                     ExportableClassMixin._dump_h5_entry(
-                        file, group_name, this_value
+                        file, group_name, this_value,existing_groups=existing_groups
                     )
 
     attributes["type"] = H5StoreTypes.Sequence.name
     attributes["timestamp"] = datetime.datetime.now().isoformat()
-    return attributes
+    existing_groups[group] = value
+
+    return attributes, existing_groups
 
 
 @_register(DEFAULT_H5_LOADERS, H5StoreTypes.Sequence)

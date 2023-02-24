@@ -48,7 +48,7 @@ def break_key(key):
 
 
 def make_cache_name(name):
-    return f"__lcache_{name}__"
+    return f"__cache_{name}__"
 
 
 def _make_key(args, kwds):
@@ -87,7 +87,7 @@ def _cache_wrapper(user_function):
     def wrapper(instance, *args, **kwds):
         cache = object.__getattribute__(instance, "__dict__")
         key = _make_key(args, dict(sorted(kwds.items())))
-        fname = make_cache_name(user_function.__name__)
+        fname = make_cache_name(user_function.__qualname__)
         if fname in cache:
             function_cache = cache[fname]
             if key in function_cache:
@@ -123,39 +123,35 @@ class cached_property(object):
         return obj.__dict__[self.func.__qualname__]
 
 
-def local_cache(report=False, export=False):
-    class _local_cache:
-        """Caches the result of a function call locally to the instance.
-        This is different from functools.cache, which caches the function result to the class, which means that
-        the cache is not invalidated even if the instance is deleted.
-        The functools implementation is good for i.e. HTTPS lookups, but causes memory leaks if the class being cached is very large"""
+class local_cache:
+    """Caches the result of a function call locally to the instance.
+    This is different from functools.cache, which caches the function result to the class, which means that
+    the cache is not invalidated even if the instance is deleted.
+    The functools implementation is good for i.e. HTTPS lookups,
+    but causes memory leaks if the class being cached is very large
+    """
 
-        def __init__(self, wrapped_func):
-            self.user_func = wrapped_func
+    def __init__(self, wrapped_func):
+        self.user_func = wrapped_func
 
-        def __get__(self, obj, objtype=None):
+    def __get__(self, obj, cls):
 
-            partial_function = functools.update_wrapper(
-                functools.partial(_cache_wrapper(self.user_func), obj),
-                self.user_func,
+        partial_function = functools.update_wrapper(
+            functools.partial(_cache_wrapper(self.user_func), obj),
+            self.user_func,
+        )
+        return partial_function
+
+    def __set__(self, obj, value):
+
+        fname = make_cache_name(self.user_func.__qualname__)
+        if fname not in obj.__dict__:
+            obj.__dict__[fname] = {}
+
+        key, return_value = value
+        if isinstance(key, _HashedSeq):
+            obj.__dict__[fname][key] = return_value
+        else:
+            raise ValueError(
+                f"Can't assign {value} to the cache of {self.user_func.__qualname__}!"
             )
-            partial_function._report_values = report
-            partial_function._export_values = export
-
-            return partial_function
-
-        def __set__(self, obj, value):
-
-            fname = make_cache_name(self.user_func.__name__)
-            if fname not in obj.__dict__:
-                obj.__dict__[fname] = {}
-
-            key, return_value = value
-            if isinstance(key, _HashedSeq):
-                obj.__dict__[fname][key] = return_value
-            else:
-                raise ValueError(
-                    f"Can't assign {value} to the cache of {self.user_func.__name__}!"
-                )
-
-    return _local_cache
