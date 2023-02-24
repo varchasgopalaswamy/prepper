@@ -1,7 +1,12 @@
+# -*- coding: utf-8 -*-
+from __future__ import annotations
+
 from tkinter import E
+
 import numpy as np
 
-def check_equality(a,b):
+
+def check_equality(a, b):
     """
     Check if two objects are equal
     """
@@ -18,10 +23,12 @@ def check_equality(a,b):
         # check if the dimensions are compatible
         if np.ndim(a) != np.ndim(b):
             return False
-        if hasattr(a,'units') and not a.is_compatible_with(b):
+        if hasattr(a, "units") and not a.is_compatible_with(b):
             return False
         # do a numpy comparison
         try:
-            return np.allclose(a,b)
+            return np.allclose(a, b)
         except Exception:
-            raise ValueError(f"Cannot compare {a} and {b} of type {type(a)} and {type(b)}")
+            raise ValueError(
+                f"Cannot compare {a} and {b} of type {type(a)} and {type(b)}"
+            )

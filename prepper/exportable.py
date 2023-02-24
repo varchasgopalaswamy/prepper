@@ -4,6 +4,7 @@ from __future__ import annotations
 import copy
 import datetime
 import importlib.metadata
+import inspect
 import os
 import shutil
 import tempfile
@@ -16,18 +17,22 @@ from typing import Any, Dict, List, Tuple
 import h5py
 import loguru
 import numpy as np
-import inspect
 
 from prepper import H5StoreException
 from prepper.caching import break_key, make_cache_name
 from prepper.enums import H5StoreTypes
 from prepper.utils import check_equality
+
 __all__ = [
     "ExportableClassMixin",
 ]
 
 
-def saveable_class(api_version: float, attributes: List[str] = None, functions:List[str] = None):
+def saveable_class(
+    api_version: float,
+    attributes: List[str] = None,
+    functions: List[str] = None,
+):
     if attributes is None:
         attributes = []
     if functions is None:
@@ -36,13 +41,14 @@ def saveable_class(api_version: float, attributes: List[str] = None, functions:L
     def decorator(cls: ExportableClassMixin):
 
         if not issubclass(cls, ExportableClassMixin):
-            raise ValueError('Only subclasses of ExportableClassMixin can be decorated with saveable_class')
+            raise ValueError(
+                "Only subclasses of ExportableClassMixin can be decorated with saveable_class"
+            )
         attribute_names = {}
         function_names = {}
 
         exportable_functions = []
         exportable_attributes = []
-
 
         for parent in reversed(inspect.getmro(cls)):
             if hasattr(parent, "_exportable_attributes"):
@@ -60,7 +66,9 @@ def saveable_class(api_version: float, attributes: List[str] = None, functions:L
 
         for name, clsname in attribute_names.items():
             if not hasattr(clsname, name):
-                loguru.logger.warning(f"{clsname} does not have attribute {name}. This may mean that {name} is missing (which is an error), or a dynamically assigned attribute. Consider making {name} a property to avoid this warning.")
+                loguru.logger.warning(
+                    f"{clsname} does not have attribute {name}. This may mean that {name} is missing (which is an error), or a dynamically assigned attribute. Consider making {name} a property to avoid this warning."
+                )
 
             exportable_attributes.append(f"{clsname.__name__}.{name}")
         for name, clsname in function_names.items():
@@ -75,6 +83,7 @@ def saveable_class(api_version: float, attributes: List[str] = None, functions:L
         return cls
 
     return decorator
+
 
 class ExportableClassMixin(object, metaclass=ABCMeta):
     """
@@ -143,7 +152,6 @@ class ExportableClassMixin(object, metaclass=ABCMeta):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-
 
     @classmethod
     def from_hdf5(cls, path, group="/"):
@@ -224,7 +232,6 @@ class ExportableClassMixin(object, metaclass=ABCMeta):
 
             return entry_type, load_custom_h5_type(file, group, entry_type)
 
-
     def to_hdf5(self, path):
         """
         Save this object to an h5 file
@@ -249,7 +256,13 @@ class ExportableClassMixin(object, metaclass=ABCMeta):
             self._write_hdf5_contents(temp_file, group="/", existing_groups={})
             shutil.copyfile(src=temp_file, dst=path)
 
-    def _write_hdf5_contents(self, file: str, group: str, existing_groups:Dict[str,Any], attributes=None):
+    def _write_hdf5_contents(
+        self,
+        file: str,
+        group: str,
+        existing_groups: Dict[str, Any],
+        attributes=None,
+    ):
         from prepper.io_handlers import (
             dump_class_constructor,
             dump_custom_h5_type,
@@ -257,7 +270,6 @@ class ExportableClassMixin(object, metaclass=ABCMeta):
             read_h5_attr,
             write_h5_attr,
         )
-
 
         existing_groups[group] = self
 
@@ -270,7 +282,7 @@ class ExportableClassMixin(object, metaclass=ABCMeta):
             attributes["module"] = self.__class__.__module__
             attributes["class"] = self.__class__.__name__
             attributes["timestamp"] = datetime.datetime.now().isoformat()
-            if code_name == '__main__':
+            if code_name == "__main__":
                 attributes["version"] = ""
             else:
                 attributes["version"] = importlib.metadata.version(code_name)
@@ -288,13 +300,18 @@ class ExportableClassMixin(object, metaclass=ABCMeta):
 
         # Store the class constructor arguments, if applicable
         if len(self._constructor_args) > 0:
-            existing_groups = dump_class_constructor(file, group, self, existing_groups)
+            existing_groups = dump_class_constructor(
+                file, group, self, existing_groups
+            )
 
         # Save the attributes, if populated
         for attribute in self._exportable_attributes:
             if hasattr(self, attribute):
                 existing_groups = self._dump_h5_entry(
-                    file, f"{group}/{attribute}", getattr(self, attribute), existing_groups
+                    file,
+                    f"{group}/{attribute}",
+                    getattr(self, attribute),
+                    existing_groups,
                 )
         # Save the marked cached properties and function calls
         if hasattr(self, "_exportable_functions"):
@@ -303,7 +320,9 @@ class ExportableClassMixin(object, metaclass=ABCMeta):
                 if symbol in self.__dict__:
                     classname, value = self.__dict__[symbol].split(".")
                     if classname == self.__class__.__name__:
-                        existing_groups = self._dump_h5_entry(file, f"{group}/{symbol}", value, existing_groups)
+                        existing_groups = self._dump_h5_entry(
+                            file, f"{group}/{symbol}", value, existing_groups
+                        )
                 # This means its a cached function call, so save each call
                 elif make_cache_name(symbol) in self.__dict__:
                     function_cache = self.__dict__[make_cache_name(symbol)]
@@ -338,7 +357,11 @@ class ExportableClassMixin(object, metaclass=ABCMeta):
                         for k, v in key_kwargs.items():
                             attrs[f"call_kw_{k}"] = v
                         existing_groups = self._dump_h5_entry(
-                            file, group_name, value, existing_groups, attributes=attrs
+                            file,
+                            group_name,
+                            value,
+                            existing_groups,
+                            attributes=attrs,
                         )
 
         return existing_groups
@@ -348,7 +371,7 @@ class ExportableClassMixin(object, metaclass=ABCMeta):
         file: str,
         entry_name: str,
         value: Any,
-        existing_groups:Dict[str,Any],
+        existing_groups: Dict[str, Any],
         attributes: Dict[str, Any] = None,
     ):
         from prepper.io_handlers import dump_custom_h5_type, write_h5_attr
@@ -358,7 +381,9 @@ class ExportableClassMixin(object, metaclass=ABCMeta):
             attributes = {}
 
         try:
-            existing_groups = dump_custom_h5_type(file, entry_name, value, existing_groups)
+            existing_groups = dump_custom_h5_type(
+                file, entry_name, value, existing_groups
+            )
         except H5StoreException:
             msg = f"Group {entry_name} is an object of type {type(value)} that does not support being saved to an HDF5 file!"
             loguru.logger.error(msg, exc_info=True)
@@ -398,19 +423,20 @@ class ExportableClassMixin(object, metaclass=ABCMeta):
         return entry_type
 
 
-if __name__ == '__main__':
-    from prepper import saveable_class, ExportableClassMixin
+if __name__ == "__main__":
+    from prepper import ExportableClassMixin, saveable_class
 
-    @saveable_class("0.0.1", save=['test_string','test_array','test_array2'])
+    @saveable_class("0.0.1", save=["test_string", "test_array", "test_array2"])
     class SimpleSaveableClass(ExportableClassMixin):
         """
         A simple saveable class, used to test saving as an attribute of another
         saveable class
         """
+
         def __init__(self):
-            self.test_string = 'test string SimpleSaveableClass'
-            self.test_array = np.random.random(size=(1000,1000))
+            self.test_string = "test string SimpleSaveableClass"
+            self.test_array = np.random.random(size=(1000, 1000))
             self.test_array2 = self.test_array
 
     self = SimpleSaveableClass()
-    self.to_hdf5('/b1/vgop/test.hdf5')
+    self.to_hdf5("/b1/vgop/test.hdf5")
