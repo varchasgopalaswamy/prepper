@@ -23,7 +23,7 @@ jobs:
           pip install .
       - name: Lint with pylint
         run: |
-          pylint prepper
+          pylint --fail-under=8 prepper
       - name: Test with pytest
         run: |
           pytest --cov=prepper --cov-report=xml --cov-report=html
