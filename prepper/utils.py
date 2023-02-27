@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import warnings
+
 import loguru
 import numpy as np
 
@@ -24,7 +26,10 @@ def check_equality(value1, value2, log=False):
 
     # Just try to do a comparison
     try:
-        same = bool(value1 == value2)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=FutureWarning)
+            same = bool(value1 == value2)
+
         if not same:
             if log:
                 loguru.logger.debug(
