@@ -117,7 +117,7 @@ def dump_custom_h5_type(
     clone_group = None
     for k, v in existing_groups.items():
         try:
-            is_equal = check_equality(v, value)
+            is_equal = check_equality(value, v)
         except Exception:
             is_equal = False
         if is_equal:

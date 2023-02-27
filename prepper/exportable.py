@@ -43,8 +43,8 @@ def saveable_class(
             raise ValueError(
                 "Only subclasses of ExportableClassMixin can be decorated with saveable_class"
             )
-        attribute_names = {}
-        function_names = {}
+        attribute_names = []
+        function_names = []
 
         exportable_functions = []
         exportable_attributes = []
@@ -52,27 +52,36 @@ def saveable_class(
         for parent in reversed(inspect.getmro(cls)):
             if hasattr(parent, "_exportable_attributes"):
                 for attr in parent._exportable_attributes:
-                    attribute_names[attr] = parent
+                    bound_class, symbol = attr.split(".")
+                    attribute_names.append(symbol)
             if hasattr(parent, "_exportable_functions"):
                 for fcn in parent._exportable_functions:
-                    function_names[fcn] = parent
-
+                    bound_class, symbol = fcn.split(".")
+                    function_names.append(symbol)
         for attr in attributes:
-            attribute_names[attr] = cls
+            attribute_names.append(attr)
 
         for fcn in functions:
-            function_names[fcn] = cls
+            function_names.append(fcn)
 
-        for name, clsname in attribute_names.items():
-            if not hasattr(clsname, name):
+        for symbol in attribute_names:
+            if not hasattr(cls, symbol):
                 raise ValueError(
-                    f"{clsname} does not have property/attribute {name} at runtime. Dynamically added attributes are not supported."
+                    f"{cls} and its parents does not have property/attribute {symbol} at runtime. Dynamically added attributes are not supported."
                 )
-            exportable_attributes.append(f"{clsname.__name__}.{name}")
-        for name, clsname in function_names.items():
-            if not hasattr(clsname, name):
-                raise ValueError(f"{clsname} does not have function {name}")
-            exportable_functions.append(f"{clsname.__name__}.{name}")
+            try:
+                exportable_attributes.append(getattr(cls, symbol).__qualname__)
+            except AttributeError as exc:
+                raise ValueError(
+                    f"{cls}.{symbol} is a property. Saving properties is not supported as they dont have __dict__ entries. Make {symbol} a cached property instead."
+                ) from None
+
+        for symbol in function_names:
+            if not hasattr(cls, symbol):
+                raise ValueError(
+                    f"{cls} and its parents does not have function {symbol}"
+                )
+            exportable_functions.append(getattr(cls, symbol).__qualname__)
 
         cls._exportable_functions = set(exportable_functions)
         cls._exportable_attributes = set(exportable_attributes)
@@ -129,6 +138,12 @@ class ExportableClassMixin(metaclass=ABCMeta):
             return False
 
         same = True
+        # Check that the constructor arguments are the same
+        for key, value in self._constructor_args.items():
+            theirs = other._constructor_args.get(key, None)
+            this_is_same = check_equality(value, theirs, log=True)
+            same &= this_is_same
+
         # Check that attributes are the same
         for attr in self._exportable_attributes:
             mine = getattr(self, attr, None)

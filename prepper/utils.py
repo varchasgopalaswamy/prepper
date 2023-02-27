@@ -4,11 +4,23 @@ from __future__ import annotations
 import loguru
 import numpy as np
 
+try:
+    import xarray as xr
+except ImportError:
+    xr = None
+
 
 def check_equality(value1, value2, log=False):
     """
     Check if two objects are equal
     """
+
+    # Need a special check for xarray Datasets...
+    if xr is not None:
+        if isinstance(value1, (xr.Dataset)):
+            return value1.identical(value2)
+        elif isinstance(value2, (xr.Dataset)):
+            return value2.identical(value1)
 
     # Just try to do a comparison
     try:

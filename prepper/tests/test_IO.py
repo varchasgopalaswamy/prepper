@@ -93,6 +93,7 @@ def test_cached_property(x):
             ),
         ),
         min_size=1,
+        max_size=4,
     )
 )
 def test_with_heterogenous_list(x):
