@@ -4,6 +4,7 @@ from __future__ import annotations
 import functools
 from functools import update_wrapper
 
+from joblib import hash as joblib_hash
 from numpy import ndarray
 
 __all__ = [
@@ -26,7 +27,7 @@ class _HashedSeq(list):
 
     def __init__(self, tup, hash=hash):
         self[:] = tup
-        self.hashvalue = hash(tup)
+        self.hashvalue = int(joblib_hash(tup, hash_name="sha1"), 16)
 
     def __hash__(self):
         return self.hashvalue
