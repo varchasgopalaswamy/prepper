@@ -7,7 +7,7 @@ import re
 import traceback
 from collections.abc import Iterable
 from enum import Enum
-from typing import Any, Dict, List, Sequence, Type
+from typing import Any, Dict, List, Sequence, Type, Union
 
 import h5py
 import loguru
@@ -17,7 +17,29 @@ from prepper import H5StoreException
 from prepper.caching import _HashedSeq, _make_key
 from prepper.enums import H5StoreTypes
 from prepper.exportable import ExportableClassMixin
-from prepper.utils import check_equality
+from prepper.utils import check_equality, get_element_from_number_and_weight
+
+try:
+    import xarray as xr
+except ImportError:
+    xr = None
+
+try:
+    import periodictable as pt
+except ImportError:
+    pt = None
+
+try:
+    from auto_uncertainties import Uncertainty
+except ImportError:
+    Uncertainty = None
+
+try:
+    import pint
+
+    ur = pint.get_application_registry()
+except ImportError:
+    ur = None
 
 __all__ = [
     "dump_custom_h5_type",
@@ -583,3 +605,156 @@ def load_generic_sequence(file: str, group: str) -> List[Any]:
 
             results.append(item_result)
     return results
+
+
+if xr is not None:
+    #### xarray ####
+    @register_writer(lambda x: isinstance(x, xr.Dataset))
+    def dump_xarray(
+        file: str,
+        group: str,
+        value: xr.Dataset,
+        existing_groups: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        attributes = {}
+
+        compression_args = {}
+        for k in value.data_vars:
+            compression_args[k] = get_hdf5_compression()
+
+        value.astype(np.float32).to_netcdf(
+            file,
+            group=group,
+            format="NETCDF4",
+            mode="a",
+            engine="h5netcdf",
+            invalid_netcdf=True,
+            encoding=compression_args,
+        )
+        value.close()
+        attributes["type"] = H5StoreTypes.XArrayDataset.name
+        attributes["timestamp"] = datetime.datetime.now().isoformat()
+        existing_groups[group] = value
+
+        return attributes, existing_groups
+
+    @register_loader(H5StoreTypes.XArrayDataset)
+    def load_xarray(file: str, group: str) -> xr.Dataset:
+        return xr.load_dataset(
+            file, group=group, format="NETCDF4", engine="h5netcdf"
+        )
+
+
+if pt is not None:
+
+    @register_writer(
+        lambda x: isinstance(x, (pt.core.Isotope, pt.core.Element)),
+    )
+    def dump_periodictable_element(
+        file: str,
+        group: str,
+        value: Union[pt.core.Isotope, pt.core.Element],
+        existing_groups: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        attributes = {}
+        with h5py.File(file, mode="a", track_order=True) as hdf5_file:
+            new_entry = hdf5_file.require_group(group)
+            new_entry["element_name"] = str(value.name)
+            new_entry["element_A"] = value.mass
+            new_entry["element_Z"] = value.number
+            attributes["type"] = H5StoreTypes.PeriodicTableElement.name
+            attributes["timestamp"] = datetime.datetime.now().isoformat()
+
+        return attributes, existing_groups
+
+    @register_loader(H5StoreTypes.PeriodicTableElement)
+    def load_periodictable_element(
+        file: str, group: str
+    ) -> Union[pt.core.Isotope, pt.core.Element]:
+        with h5py.File(file, "r", track_order=True) as hdf5_file:
+            entry = hdf5_file[group]
+            atomic_weight = entry["element_A"][()]
+            atomic_number = entry["element_Z"][()]
+            return get_element_from_number_and_weight(
+                z=atomic_number, a=atomic_weight
+            )
+
+
+#### ndarray with units/error ####
+@register_writer(
+    lambda x: isinstance(x, Uncertainty) or hasattr(x, "units"),
+)
+def dump_unit_or_error_ndarrays(
+    file: str, group: str, value: Any, existing_groups: Dict[str, Any]
+) -> Dict[str, Any]:
+    if hasattr(value, "units"):
+        u = str(value.units)
+        v = value.magnitude
+    else:
+        u = None
+        v = value
+
+    if hasattr(v, "error"):
+        e = v.error
+        v = v.value
+    else:
+        e = np.zeros_like(v)
+
+    attributes = {}
+    with h5py.File(file, mode="a", track_order=True) as hdf5_file:
+        new_entry = hdf5_file.require_group(group)
+        if np.size(v) > 1:
+            compression = get_hdf5_compression()
+        else:
+            compression = {}
+        new_entry.create_dataset(
+            name="value", data=v.astype(np.float32), **compression
+        )
+        if np.any(e > 0):
+            new_entry.create_dataset(
+                name="error", data=e.astype(np.float32), **compression
+            )
+
+        if u is not None:
+            attributes["unit"] = u
+        attributes["type"] = H5StoreTypes.DimensionalNDArray.name
+        attributes["timestamp"] = datetime.datetime.now().isoformat()
+        attributes["ndim"] = np.ndim(v)
+
+    existing_groups[group] = value
+    return attributes, existing_groups
+
+
+@register_loader(H5StoreTypes.DimensionalNDArray)
+def load_unit_or_error_ndarrays(file: str, group: str):
+    with h5py.File(file, "r", track_order=True) as hdf5_file:
+        entry = hdf5_file[group]
+        v = entry["value"][()]
+
+        if "error" in entry:
+            e = entry["error"][()]
+            if np.any(e > 0):
+                v = Uncertainty(v, e)
+
+        try:
+            unit = read_h5_attr(entry, "unit")
+            if unit is not None:
+                if ur is None:
+                    raise ValueError(
+                        "The dataset had unit information, but pint is not installed!"
+                    )
+                else:
+                    v *= ur(unit)
+        except KeyError:
+            pass
+
+        ndim = read_h5_attr(entry, "ndim")
+
+        if ndim == 0:
+            if v.size > 1:
+                raise H5StoreException
+            try:
+                v = v[0]
+            except IndexError:
+                pass
+    return v

@@ -76,3 +76,32 @@ def check_equality(value1, value2, log=False):
             raise ValueError(
                 f"Cannot compare {value1} and {value2} of type {type(value1)} and {type(value2)}"
             ) from e
+
+
+def get_element_from_number_and_weight(z: float, a: float):
+    """
+
+    :param z:
+    :param a:
+
+    """
+    import periodictable
+
+    elm = None
+    mindist = np.inf
+    for element in periodictable.elements:
+        for iso in element:
+            e_z = iso.number
+            e_a = iso.mass
+            if int(z) == int(e_z) and np.abs(a - e_a) < mindist:
+                mindist = np.abs(a - e_a)
+                elm = iso
+
+    # If this is the base element, just return the base element
+    if np.abs(elm.element.mass - elm.mass) < 0.3:
+        elm = elm.element
+    if elm is None:
+        raise ValueError(
+            f"Could not find a matching element for A = {a} and Z = {z}"
+        )
+    return elm

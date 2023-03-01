@@ -24,6 +24,9 @@ class H5StoreTypes(Enum):
     FunctionCache = 7
     Null = 8
     Enumerator = 9
+    DimensionalNDArray = 10
+    XArrayDataset = 11
+    PeriodicTableElement = 12
 
 
 def add_enum_item(name: str):
