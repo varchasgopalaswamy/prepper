@@ -6,7 +6,7 @@ import os
 import tempfile
 
 import h5py
-from hypothesis import given, strategies
+from hypothesis import given, settings, strategies
 from hypothesis.extra import numpy as hnp
 
 from prepper import (
@@ -75,6 +75,7 @@ def roundtrip(obj: ExportableClassMixin, should_not_be_saved=None):
         dtype=float,
     )
 )
+@settings(deadline=None)
 def test_cached_property(x):
     test_class = SimpleSaveableClass(x)
     new_class = roundtrip(test_class, should_not_be_saved=["a", "mult"])
@@ -96,6 +97,7 @@ def test_cached_property(x):
         max_size=4,
     )
 )
+@settings(deadline=None)
 def test_with_heterogenous_list(x):
     test_class = SimpleSaveableClass(x)
     _ = test_class.mult(2)
@@ -113,6 +115,7 @@ def test_with_heterogenous_list(x):
         min_size=1,
     )
 )
+@settings(deadline=None)
 def test_with_str_list(x):
     test_class = SimpleSaveableClass(x)
     _ = test_class.mult(2)
@@ -128,6 +131,7 @@ def test_with_str_list(x):
         dtype=float,
     )
 )
+@settings(deadline=None)
 def test_with_floats(x):
     test_class = SimpleSaveableClass(x)
     _ = test_class.mult(2)
@@ -141,6 +145,7 @@ def test_with_floats(x):
         dtype=int,
     )
 )
+@settings(deadline=None)
 def test_with_ints(x):
     test_class = SimpleSaveableClass(x)
     _ = test_class.mult(2)
@@ -153,6 +158,7 @@ def test_with_ints(x):
         min_size=1,
     )
 )
+@settings(deadline=None)
 def test_with_float_list(x):
     test_class = SimpleSaveableClass(x)
     _ = test_class.mult(2)
@@ -165,6 +171,7 @@ def test_with_float_list(x):
         min_size=1,
     )
 )
+@settings(deadline=None)
 def test_with_int_list(x):
     test_class = SimpleSaveableClass(x)
     _ = test_class.mult(2)

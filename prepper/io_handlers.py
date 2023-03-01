@@ -32,7 +32,10 @@ except ImportError:
 try:
     from auto_uncertainties import Uncertainty
 except ImportError:
-    Uncertainty = None
+
+    class Uncertainty:
+        ...
+
 
 try:
     import pint
