@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import datetime
 import importlib
+import numbers
 import re
 import traceback
 from collections.abc import Iterable
@@ -708,15 +709,16 @@ def dump_unit_or_error_ndarrays(
         new_entry = hdf5_file.require_group(group)
         if np.size(v) > 1:
             compression = get_hdf5_compression()
+            if not issubclass(v.dtype.type, numbers.Integral) and issubclass(
+                v.dtype.type, numbers.Real
+            ):
+                v = v.astype(np.float32)
+                e = e.astype(np.float32)
         else:
             compression = {}
-        new_entry.create_dataset(
-            name="value", data=v.astype(np.float32), **compression
-        )
+        new_entry.create_dataset(name="value", data=v, **compression)
         if np.any(e > 0):
-            new_entry.create_dataset(
-                name="error", data=e.astype(np.float32), **compression
-            )
+            new_entry.create_dataset(name="error", data=e, **compression)
 
         if u is not None:
             attributes["unit"] = u
