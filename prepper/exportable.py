@@ -116,7 +116,12 @@ class ExportableClassMixin(metaclass=ABCMeta):
         """
         instance = object.__new__(cls)
         instance._constructor_args = {}
-        instance.__init__(*args, **kwargs)
+        try:
+            instance.__init__(*args, **kwargs)
+        except Exception as e:
+            loguru.logger.error(f"Failed to initialize {cls.__name__}!")
+            raise e
+
         sig = signature(instance.__init__)
         bound_args = sig.bind(*args, **kwargs)
         # bound_args.apply_defaults()
