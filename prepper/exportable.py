@@ -138,6 +138,9 @@ class ExportableClassMixin(metaclass=ABCMeta):
 
         return instance
 
+    def __getnewargs_ex__(self):
+        return (), self._constructor_args
+
     def __eq__(self, other) -> bool:
         if not isinstance(self, type(other)):
             return False
