@@ -148,17 +148,18 @@ def dump_custom_h5_type(
     # Check to see if this class has already been written to the file
     class_already_written = False
     clone_group = None
-    for k, v in existing_groups.items():
-        try:
-            is_equal = check_equality(value, v)
-        except Exception:
-            is_equal = False
-        if is_equal:
-            class_already_written = True
-            clone_group = (
-                k  # This is the group that this class is already written to
-            )
-            break
+    if not isinstance(value, PYTHON_BASIC_TYPES + (bool,)):
+        for k, v in existing_groups.items():
+            try:
+                is_equal = check_equality(value, v)
+            except Exception:
+                is_equal = False
+
+            if is_equal:
+                if isinstance(v, type(value)):
+                    class_already_written = True
+                    clone_group = k  # This is the group that this class is already written to
+                    break
     if class_already_written:
         # This class has already been written to the file, so we just need to write a reference to it
         with h5py.File(file, mode="a", track_order=True) as hdf5_file:
@@ -405,7 +406,7 @@ def dump_python_types_or_ndarray(
     attributes = {}
     with h5py.File(file, mode="a", track_order=True) as hdf5_file:
         try:
-            _ = hdf5_file.create_dataset(name=group, data=value)
+            hdf5_file[group] = value
         except TypeError as exc:
             msg = f"Failed to store {group} because it was of type {type(value)} which is not natively supported in HDF5!"
             loguru.logger.error(msg)
@@ -428,7 +429,10 @@ def load_python_types_or_ndarray(file: str, group: str):
         try:
             return entry.asstr("utf-8")[()]
         except TypeError:
-            return entry[()]
+            val = entry[()]
+            if isinstance(val, np.bool_):
+                val = bool(val)
+            return val
 
 
 #### class constructor ####
