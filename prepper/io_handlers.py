@@ -33,9 +33,12 @@ except ImportError:
 try:
     from auto_uncertainties import Uncertainty
 except ImportError:
+    Uncertainty = None
 
-    class Uncertainty:
-        ...
+try:
+    import arviz as az
+except ImportError:
+    az = None
 
 
 try:
@@ -682,6 +685,40 @@ if pt is not None:
             return get_element_from_number_and_weight(
                 z=atomic_number, a=atomic_weight
             )
+
+
+if az is not None:
+    #### arviz ####
+    @register_writer(lambda x: isinstance(x, az.InferenceData))
+    def dump_inferencedata(
+        file: str,
+        group: str,
+        value: az.InferenceData,
+        existing_groups: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        attributes = {}
+
+        compression_args = {}
+        for k in value.data_vars:
+            compression_args[k] = get_hdf5_compression()
+
+        value.to_netcdf(
+            file,
+            engine="h5netcdf",
+            base_group=group,
+        )
+
+        attributes["type"] = H5StoreTypes.ArViz.name
+        attributes["timestamp"] = datetime.datetime.now().isoformat()
+        existing_groups[group] = value
+
+        return attributes, existing_groups
+
+    @register_loader(H5StoreTypes.ArViz)
+    def load_inferencedata(file: str, group: str) -> az.InferenceData:
+        return az.InferenceData.from_netcdf(
+            file, base_group=group, engine="h5netcdf"
+        )
 
 
 #### ndarray with units/error ####

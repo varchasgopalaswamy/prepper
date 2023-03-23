@@ -27,6 +27,7 @@ class H5StoreTypes(Enum):
     DimensionalNDArray = 10
     XArrayDataset = 11
     PeriodicTableElement = 12
+    ArViz = 13
 
 
 def add_enum_item(name: str):
