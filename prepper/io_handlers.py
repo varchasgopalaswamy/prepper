@@ -33,7 +33,10 @@ except ImportError:
 try:
     from auto_uncertainties import Uncertainty
 except ImportError:
-    Uncertainty = None
+
+    class Uncertainty(object):
+        ...
+
 
 try:
     import arviz as az
@@ -697,10 +700,6 @@ if az is not None:
         existing_groups: Dict[str, Any],
     ) -> Dict[str, Any]:
         attributes = {}
-
-        compression_args = {}
-        for k in value.data_vars:
-            compression_args[k] = get_hdf5_compression()
 
         value.to_netcdf(
             file,
