@@ -705,6 +705,7 @@ if az is not None:
             file,
             engine="h5netcdf",
             base_group=group,
+            overwrite_existing=False,
         )
 
         attributes["type"] = H5StoreTypes.ArViz.name
