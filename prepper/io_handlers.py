@@ -5,6 +5,7 @@ import datetime
 import importlib
 import numbers
 import re
+import tempfile
 import traceback
 from collections.abc import Iterable
 from enum import Enum
@@ -295,8 +296,12 @@ def dump_hdf5_group(
 
 @_register(DEFAULT_H5_LOADERS, H5StoreTypes.HDF5Group)
 def load_hdf5_group(file: str, group: str):
+    tf = tempfile.TemporaryFile()
     with h5py.File(file, "r", track_order=True) as hdf5_file:
-        return hdf5_file[group]["value"]
+        f = h5py.File(tf, "w")
+        hdf5_file.copy(source=f"{group}/value", dest=f["/"], name="value")
+
+        return f["/value"]
 
 
 #### python class ####
