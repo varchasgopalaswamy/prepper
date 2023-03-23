@@ -193,10 +193,10 @@ class ExportableClassMixin(metaclass=ABCMeta):
                     raise H5StoreException()
             else:
                 init_kws = {}
-            obj = cls(**init_kws)
-            obj._read_hdf5_contents(path, group=group)
+            instance = cls(**init_kws)
+            instance._read_hdf5_contents(path, group=group)
 
-        return obj
+        return instance
 
     def _read_hdf5_contents(self, file, group):
         from prepper.io_handlers import read_h5_attr
@@ -261,10 +261,6 @@ class ExportableClassMixin(metaclass=ABCMeta):
         Save this object to an h5 file
         """
 
-        if not os.path.splitext(path)[1] == ".hdf5":
-            raise ValueError(
-                f"HDF5 save objects must end in .hdf5! The provided path was {path}"
-            )
         if os.path.exists(path):
             loguru.logger.warning(f"HDF5 file {path} exists... overwriting.")
 

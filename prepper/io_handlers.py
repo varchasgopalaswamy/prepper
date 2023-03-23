@@ -68,6 +68,10 @@ _NONE_TYPE_SENTINEL = "__python_None_sentinel__"
 _EMPTY_TYPE_SENTINEL = "__python_Empty_sentinel__"
 
 PYTHON_BASIC_TYPES = (int, float, str)
+TYPES_TO_SKIP_DUPLICATE_CHECKING = PYTHON_BASIC_TYPES + (bool,)
+if az is not None:
+    TYPES_TO_SKIP_DUPLICATE_CHECKING += (az.InferenceData,)
+
 NUMPY_NUMERIC_TYPES = (np.int32, np.int64, np.float32, np.float64)
 DEFAULT_H5_WRITERS = {}
 DEFAULT_H5_LOADERS = {}
@@ -148,7 +152,7 @@ def dump_custom_h5_type(
     # Check to see if this class has already been written to the file
     class_already_written = False
     clone_group = None
-    if not isinstance(value, PYTHON_BASIC_TYPES + (bool,)):
+    if not isinstance(value, TYPES_TO_SKIP_DUPLICATE_CHECKING):
         for k, v in existing_groups.items():
             try:
                 is_equal = check_equality(value, v)
@@ -272,7 +276,6 @@ def load_hdf5_function_cache(file: str, group: str) -> Dict[_HashedSeq, Any]:
 
             key = _make_key(tuple(args), dict(sorted(kwargs.items())))
             function_calls[key] = value
-
     return function_calls
 
 

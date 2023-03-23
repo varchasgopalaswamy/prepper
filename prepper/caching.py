@@ -4,6 +4,7 @@ from __future__ import annotations
 import functools
 from functools import update_wrapper
 
+import numpy as np
 from joblib import hash as joblib_hash
 from numpy import ndarray
 
@@ -26,8 +27,16 @@ class _HashedSeq(list):
     __slots__ = ["hashvalue"]
 
     def __init__(self, tup, hash=hash):
-        self[:] = tup
-        self.hashvalue = int(joblib_hash(tup, hash_name="sha1"), 16)
+        hash_values = []
+        for v in tup:
+            try:
+                hash_values.append(v.item())
+            except Exception:
+                hash_values.append(v)
+
+        self[:] = hash_values
+
+        self.hashvalue = int(joblib_hash(hash_values, hash_name="sha1"), 16)
 
     def __hash__(self):
         return self.hashvalue
