@@ -110,9 +110,15 @@ def write_h5_attr(base: h5py.Group, name: str, value: Any):
                     raise H5StoreException(
                         f"Could not write attribute {name} with type {type(value)}!"
                     ) from exc2
+                except KeyError:
+                    if name in base.attrs:
+                        pass
             raise H5StoreException(
                 f"Could not write attribute {name} with type {type(value)}!"
             ) from exc
+        except KeyError:
+            if name in base.attrs:
+                pass
 
 
 def read_h5_attr(base: h5py.Group, name: str):
