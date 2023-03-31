@@ -26,10 +26,8 @@ def check_equality(value1, value2, log=False):
 
     # Just try to do a comparison
     try:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", category=FutureWarning)
-            same = bool(value1 == value2)
-
+        same = value1 == value2
+        same = bool(same)
         if not same:
             if log:
                 loguru.logger.debug(

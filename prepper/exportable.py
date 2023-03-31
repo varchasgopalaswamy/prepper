@@ -10,6 +10,7 @@ import shutil
 import tempfile
 import traceback
 import uuid
+import warnings
 from abc import ABCMeta
 from inspect import Parameter, signature
 from typing import Any, Dict, List, Tuple
@@ -22,6 +23,11 @@ from prepper import H5StoreException
 from prepper.caching import break_key, make_cache_name
 from prepper.enums import H5StoreTypes
 from prepper.utils import check_equality
+
+try:
+    from auto_uncertainties import NumpyDowncastWarning
+except ImportError:
+    NumpyDowncastWarning = None
 
 __all__ = [
     "ExportableClassMixin",
@@ -273,7 +279,18 @@ class ExportableClassMixin(metaclass=ABCMeta):
             temp_file = os.path.join(temp_dir, str(uuid.uuid1()))
             file = h5py.File(temp_file, "w")
             file.close()
-            self._write_hdf5_contents(temp_file, group="/", existing_groups={})
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", category=FutureWarning)
+                warnings.simplefilter(
+                    "ignore", category=np.VisibleDeprecationWarning
+                )
+                if NumpyDowncastWarning is not None:
+                    warnings.simplefilter(
+                        "ignore", category=NumpyDowncastWarning
+                    )
+                self._write_hdf5_contents(
+                    temp_file, group="/", existing_groups={}
+                )
             shutil.copyfile(src=temp_file, dst=path)
 
     def _write_hdf5_contents(
