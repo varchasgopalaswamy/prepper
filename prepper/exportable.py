@@ -178,6 +178,11 @@ class ExportableClassMixin(metaclass=ABCMeta):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        self._initialized_from_file = False
+
+    @property
+    def initialized_from_file(self):
+        return self._initialized_from_file
 
     @classmethod
     def from_hdf5(cls, path, group="/"):
@@ -201,7 +206,6 @@ class ExportableClassMixin(metaclass=ABCMeta):
                 init_kws = {}
             instance = cls(**init_kws)
             instance._read_hdf5_contents(path, group=group)
-
         return instance
 
     def _read_hdf5_contents(self, file, group):
@@ -246,6 +250,7 @@ class ExportableClassMixin(metaclass=ABCMeta):
                 if entry_type == H5StoreTypes.FunctionCache:
                     key_name = make_cache_name(key_name)
                 self.__dict__[key_name] = entry_value
+        self._initialized_from_file = True
 
     @staticmethod
     def _load_h5_entry(file: str, group: str) -> Tuple[H5StoreTypes, Any]:
