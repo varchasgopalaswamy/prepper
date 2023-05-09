@@ -182,7 +182,7 @@ class ExportableClassMixin(metaclass=ABCMeta):
 
     @property
     def initialized_from_file(self):
-        return self._initialized_from_file
+        return getattr(self, "_initialized_from_file", False)
 
     @classmethod
     def from_hdf5(cls, path, group="/"):
