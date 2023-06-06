@@ -176,8 +176,14 @@ def dump_custom_h5_type(
             hdf5_file[group] = h5py.SoftLink(clone_group)
         return existing_groups
 
-    for validator, writer in writers.values():
-        if validator(value):
+    for name, (validator, writer) in writers.items():
+        try:
+            is_valid = validator(value)
+        except Exception as e:
+            msg = f"Failed to check condition {name} for value {value} of type {type(value)}!"
+            loguru.logger.error(msg, exc_info=True)
+            is_valid = False
+        if is_valid:
             attrs, existing_groups = writer(
                 file, group, value, existing_groups
             )
