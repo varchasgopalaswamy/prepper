@@ -16,6 +16,7 @@ from inspect import Parameter, signature
 from typing import Any, Dict, List, Tuple
 
 import h5py
+import joblib
 import loguru
 import numpy as np
 
@@ -143,6 +144,13 @@ class ExportableClassMixin(metaclass=ABCMeta):
             instance._constructor_args[key] = value
 
         return instance
+
+    def __hash__(self):
+        keys = list(self._constructor_args.keys())
+        values = list(self._constructor_args.values())
+
+        digest = joblib.hash(keys + values, hash_name="sha1")
+        return int.from_bytes(bytes(digest, encoding="utf-8"), "big")
 
     def __getnewargs_ex__(self):
         return (), self._constructor_args
