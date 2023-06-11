@@ -2,11 +2,14 @@
 from __future__ import annotations
 
 import functools
+from collections.abc import Callable
 from functools import update_wrapper
+from typing import Generic, overload, TypeVar, Union
 
 import numpy as np
 from joblib import hash as joblib_hash
 from numpy import ndarray
+from typing_extensions import Concatenate, ParamSpec, Self
 
 __all__ = [
     "break_key",
@@ -16,6 +19,9 @@ __all__ = [
 ]
 
 KWD_SENTINEL = "__prepper_kwd_sentinel__"
+T = TypeVar("T")  # class using the descriptor
+P = ParamSpec("P")  # parameter specs of the decorated method
+R = TypeVar("R")  # return value of the decorated method
 
 
 class _HashedSeq(list):
@@ -111,30 +117,42 @@ def _cache_wrapper(user_function):
     return wrapper
 
 
-class cached_property:
+class cached_property(Generic[T, P, R]):
     """A property that is only computed once per instance and then replaces
     itself with an ordinary attribute. Deleting the attribute resets the
     property. Implementation adapted from https://github.com/pydanny/cached-property
     """
 
-    def __init__(self, func):
+    func: Callable[Concatenate[T, P], R]
+
+    def __init__(self, func: Callable[Concatenate[T, P], R]):
         update_wrapper(self, func)
         self.func = func
 
-    def __get__(self, obj, cls):
-        if obj is None:
+    @overload
+    def __get__(self, instance: T, owner: object) -> R:
+        ...
+
+    @overload
+    def __get__(self, instance: None, owner: object) -> Self:
+        ...
+
+    def __get__(
+        self, instance: Union[T, None], owner: object
+    ) -> Union[Self, R]:
+        if instance is None:
             return self
 
         qualname = self.func.__qualname__
-        if qualname in obj.__dict__:
-            return obj.__dict__[qualname]
+        if qualname in instance.__dict__:
+            return instance.__dict__[qualname]
 
-        obj.__dict__[self.func.__qualname__] = self.func(obj)
+        instance.__dict__[self.func.__qualname__] = self.func(instance)
 
-        return obj.__dict__[self.func.__qualname__]
+        return instance.__dict__[self.func.__qualname__]
 
 
-class local_cache:
+class local_cache(Generic[T, P, R]):
     """Caches the result of a function call locally to the instance.
     This is different from functools.cache, which caches the function result to the class, which means that
     the cache is not invalidated even if the instance is deleted.
@@ -142,12 +160,27 @@ class local_cache:
     but causes memory leaks if the class being cached is very large
     """
 
-    def __init__(self, wrapped_func):
+    user_func: Callable[Concatenate[T, P], R]
+
+    def __init__(self, wrapped_func: Callable[Concatenate[T, P], R]):
         self.user_func = wrapped_func
 
-    def __get__(self, obj, cls):
+    @overload
+    def __get__(self, instance: T, owner: object) -> R:
+        ...
+
+    @overload
+    def __get__(self, instance: None, owner: object) -> Self:
+        ...
+
+    def __get__(
+        self, instance: Union[T, None], owner: object
+    ) -> Union[Self, R]:
+        if instance is None:
+            return self
+
         partial_function = functools.update_wrapper(
-            functools.partial(_cache_wrapper(self.user_func), obj),
+            functools.partial(_cache_wrapper(self.user_func), instance),
             self.user_func,
         )
         return partial_function

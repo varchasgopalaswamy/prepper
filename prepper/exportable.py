@@ -13,7 +13,7 @@ import uuid
 import warnings
 from abc import ABCMeta
 from inspect import Parameter, signature
-from typing import Any, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Tuple, Type
 
 import h5py
 import joblib
@@ -39,13 +39,13 @@ def saveable_class(
     api_version: float,
     attributes: List[str] = None,
     functions: List[str] = None,
-):
+) -> Callable[[ExportableClassMixin], ExportableClassMixin]:
     if attributes is None:
         attributes = []
     if functions is None:
         functions = []
 
-    def decorator(cls: ExportableClassMixin):
+    def decorator(cls: ExportableClassMixin) -> ExportableClassMixin:
         if not issubclass(cls, ExportableClassMixin):
             raise ValueError(
                 "Only subclasses of ExportableClassMixin can be decorated with saveable_class"
