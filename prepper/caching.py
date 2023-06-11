@@ -4,12 +4,15 @@ from __future__ import annotations
 import functools
 from collections.abc import Callable
 from functools import update_wrapper
-from typing import Generic, overload, TypeVar, Union
+from typing import Generic, overload, TYPE_CHECKING, TypeVar, Union
 
 import numpy as np
 from joblib import hash as joblib_hash
 from numpy import ndarray
 from typing_extensions import Concatenate, ParamSpec, Self
+
+if TYPE_CHECKING:
+    from .exportable import ExportableClassMixin
 
 __all__ = [
     "break_key",
@@ -117,15 +120,15 @@ def _cache_wrapper(user_function):
     return wrapper
 
 
-class cached_property(Generic[T, P, R]):
+class cached_property(Generic[T, R]):
     """A property that is only computed once per instance and then replaces
     itself with an ordinary attribute. Deleting the attribute resets the
     property. Implementation adapted from https://github.com/pydanny/cached-property
     """
 
-    func: Callable[Concatenate[T, P], R]
+    func: Callable[[T], R]
 
-    def __init__(self, func: Callable[Concatenate[T, P], R]):
+    def __init__(self, func: Callable[[T], R]):
         update_wrapper(self, func)
         self.func = func
 
@@ -166,24 +169,28 @@ class local_cache(Generic[T, P, R]):
         self.user_func = wrapped_func
 
     @overload
-    def __get__(self, instance: T, owner: object) -> R:
+    def __get__(
+        self, instance: T, owner: ExportableClassMixin
+    ) -> Callable[P, R]:
         ...
 
     @overload
-    def __get__(self, instance: None, owner: object) -> Self:
+    def __get__(
+        self, instance: None, owner: ExportableClassMixin
+    ) -> Callable[Concatenate[T, P], R]:
         ...
 
     def __get__(
-        self, instance: Union[T, None], owner: object
-    ) -> Union[Self, R]:
+        self, instance: Union[T, None], owner: ExportableClassMixin
+    ) -> Union[Callable[P, R], Callable[Concatenate[T, P], R]]:
         if instance is None:
-            return self
-
-        partial_function = functools.update_wrapper(
-            functools.partial(_cache_wrapper(self.user_func), instance),
-            self.user_func,
-        )
-        return partial_function
+            return self.user_func
+        else:
+            partial_function = functools.update_wrapper(
+                functools.partial(_cache_wrapper(self.user_func), instance),
+                self.user_func,
+            )
+            return partial_function
 
     def __set__(self, obj, value):
         fname = make_cache_name(self.user_func.__qualname__)
