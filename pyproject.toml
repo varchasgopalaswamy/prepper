@@ -5,7 +5,7 @@ authors = [
 ]
 description = "Allows python objects to be stored and loaded from an HDF5 file in a language-agnostic manner"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 license = {text = "MIT"}
 classifiers = [
     "Programming Language :: Python :: 3",
