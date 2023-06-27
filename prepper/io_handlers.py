@@ -179,7 +179,7 @@ def dump_custom_h5_type(
     for name, (validator, writer) in writers.items():
         try:
             is_valid = validator(value)
-        except Exception as e:
+        except Exception:
             msg = f"Failed to check condition {name} for value {value} of type {type(value)}!"
             loguru.logger.error(msg, exc_info=True)
             is_valid = False
@@ -343,12 +343,12 @@ def dump_exportable_class(
 def load_exportable_class(file: str, group: str) -> Type[ExportableClassMixin]:
     with h5py.File(file, "r", track_order=True) as hdf5_file:
         entry = hdf5_file[group]
-        if not "module" in entry.attrs:
+        if "module" not in entry.attrs:
             msg = f"Failed to load {group} because it was a class entry, but didnt have the class module path in the attribute list!"
             loguru.logger.error(msg)
             raise H5StoreException(msg)
         class_module = importlib.import_module(entry.attrs["module"])
-        if not "class" in entry.attrs:
+        if "class" not in entry.attrs:
             msg = f"Failed to load {group} because it was a class entry, but didnt have the class name in the attribute list!"
             loguru.logger.error(msg)
             raise H5StoreException(msg)

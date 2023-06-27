@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-import warnings
-
 import loguru
 import numpy as np
 

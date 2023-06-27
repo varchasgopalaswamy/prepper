@@ -13,7 +13,7 @@ import uuid
 import warnings
 from abc import ABCMeta
 from inspect import Parameter, signature
-from typing import Any, Callable, Dict, List, Tuple, Type
+from typing import Any, Callable, Dict, List, Tuple
 
 import h5py
 import joblib
@@ -78,7 +78,7 @@ def saveable_class(
                 )
             try:
                 exportable_attributes.append(getattr(cls, symbol).__qualname__)
-            except AttributeError as exc:
+            except AttributeError:
                 raise ValueError(
                     f"{cls}.{symbol} is a property. Saving properties is not supported as they dont have __dict__ entries. Make {symbol} a cached property instead."
                 ) from None
@@ -486,7 +486,6 @@ class ExportableClassMixin(metaclass=ABCMeta):
 
 
 if __name__ == "__main__":
-    from prepper import ExportableClassMixin, saveable_class
 
     @saveable_class(
         "0.0.1", attributes=["test_string", "test_array", "test_array2"]

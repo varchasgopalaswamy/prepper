@@ -5,10 +5,10 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from enum import Enum, unique
+
+    from aenum import extend_enum
 else:
     from aenum import Enum, extend_enum, unique
-
-from aenum import extend_enum
 
 __all__ = ["H5StoreTypes", "add_enum_item"]
 

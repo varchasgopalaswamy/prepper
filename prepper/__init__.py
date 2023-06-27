@@ -19,5 +19,5 @@ class H5StoreException(Exception):
     "An exception for when the HDF5 store does not meet spec"
 
 
-from .caching import cached_property, local_cache
-from .exportable import ExportableClassMixin, saveable_class
+from .caching import cached_property, local_cache  # noqa E402
+from .exportable import ExportableClassMixin, saveable_class  # noqa E402

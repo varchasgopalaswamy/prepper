@@ -6,7 +6,6 @@ from collections.abc import Callable
 from functools import update_wrapper
 from typing import Generic, overload, TYPE_CHECKING, TypeVar, Union
 
-import numpy as np
 from joblib import hash as joblib_hash
 from numpy import ndarray
 from typing_extensions import Concatenate, ParamSpec, Self
