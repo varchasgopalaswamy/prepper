@@ -9,7 +9,7 @@ import tempfile
 import traceback
 from collections.abc import Iterable
 from enum import Enum
-from typing import Any, Dict, List, Sequence, Type, Union
+from typing import Any, Dict, List, Sequence, Tuple, Type, Union
 
 import h5py
 import loguru
@@ -195,7 +195,7 @@ def dump_custom_h5_type(
                     entry = hdf5_file.require_group(group)
                 for k, v in attrs.items():
                     try:
-                        write_h5_attr(entry, k, v)
+                        write_h5_attr(entry, k, v)  # type: ignore
                     except H5StoreException:
                         msg = (
                             f"Failed to write attribute {k} to group {group}!"
@@ -208,7 +208,9 @@ def dump_custom_h5_type(
     )
 
 
-def load_custom_h5_type(file: str, group: str, entry_type: H5StoreTypes):
+def load_custom_h5_type(
+    file: str, group: str, entry_type: H5StoreTypes
+) -> Any:
     loaders = {}
     loaders.update(CUSTOM_H5_LOADERS)
     loaders.update(DEFAULT_H5_LOADERS)
@@ -257,7 +259,7 @@ def key_to_group_name(key):
 @_register(DEFAULT_H5_WRITERS, lambda x: x is None)
 def dump_None(
     file: str, group: str, value: None, existing_groups: Dict[str, Any]
-) -> Dict[str, Any]:
+) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     attributes = {}
     attributes["type"] = H5StoreTypes.Null.name
     return attributes, existing_groups
@@ -274,7 +276,7 @@ def load_hdf5_function_cache(file: str, group: str) -> Dict[_HashedSeq, Any]:
     function_calls = {}
     with h5py.File(file, mode="r", track_order=True) as hdf5_file:
         function_group = hdf5_file[group]
-        for function_call in function_group:
+        for function_call in function_group:  # type: ignore
             arg_group_name = f"{group}/{function_call}/args"
             kwarg_group_name = f"{group}/{function_call}/kwargs"
             value_group_name = f"{group}/{function_call}/value"

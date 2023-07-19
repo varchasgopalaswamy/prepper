@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Union
+
 import loguru
 import numpy as np
 
@@ -8,6 +10,11 @@ try:
     import xarray as xr
 except ImportError:
     xr = None
+
+if TYPE_CHECKING:
+    import periodictable
+
+    ElementType = Union[periodictable.core.Isotope, periodictable.core.Element]
 
 
 def check_equality(value1, value2, log=False):
@@ -74,30 +81,38 @@ def check_equality(value1, value2, log=False):
             ) from e
 
 
-def get_element_from_number_and_weight(z: float, a: float):
+def get_element_from_number_and_weight(z: float, a: float) -> ElementType:
     """
-
-    :param z:
-    :param a:
-
+    This function takes in a float value 'z' representing the atomic number,
+    and another float value 'a' representing the atomic mass, and returns
+    an object of type ElementType.
     """
     import periodictable
 
+    # Initialize variables
     elm = None
     mindist = np.inf
+
+    # Iterates over elements in the periodic table to
+    # find the element that matches the atomic number and weight.
     for element in periodictable.elements:
         for iso in element:
-            e_z = iso.number
-            e_a = iso.mass
+            e_z = iso.number  # atomic number of the current element
+            e_a = iso.mass  # atomic mass of the current element
             if int(z) == int(e_z) and np.abs(a - e_a) < mindist:
+                # updates the element object if the difference in
+                # mass between the requested and the found element
+                # is less than the minimum distance.
                 mindist = np.abs(a - e_a)
                 elm = iso
-
-    # If this is the base element, just return the base element
-    if np.abs(elm.element.mass - elm.mass) < 0.3:
-        elm = elm.element
+    # If we didnt find an element, raise a ValueError exception
     if elm is None:
         raise ValueError(
             f"Could not find a matching element for A = {a} and Z = {z}"
         )
+
+    # If the found element is the base element, just return the base element
+    if np.abs(elm.element.mass - elm.mass) < 0.3:
+        elm = elm.element
+
     return elm

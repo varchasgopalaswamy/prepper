@@ -44,7 +44,11 @@ class _HashedSeq(list):
 
         self[:] = hash_values
 
-        self.hashvalue = int(joblib_hash(hash_values, hash_name="sha1"), 16)
+        hashvalue = joblib_hash(hash_values, hash_name="sha1")
+        if hashvalue is not None:
+            self.hashvalue = int(hashvalue, 16)
+        else:
+            self.hashvalue = None
 
     def __hash__(self):
         return self.hashvalue
@@ -128,7 +132,7 @@ class cached_property(Generic[T, R]):
     func: Callable[[T], R]
 
     def __init__(self, func: Callable[[T], R]):
-        update_wrapper(self, func)
+        update_wrapper(self, func)  # type: ignore
         self.func = func
 
     @overload
@@ -189,7 +193,7 @@ class local_cache(Generic[T, P, R]):
                 functools.partial(_cache_wrapper(self.user_func), instance),
                 self.user_func,
             )
-            return partial_function
+            return partial_function  # type: ignore
 
     def __set__(self, obj, value):
         fname = make_cache_name(self.user_func.__qualname__)

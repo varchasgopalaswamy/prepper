@@ -13,7 +13,7 @@ import uuid
 import warnings
 from abc import ABCMeta
 from inspect import Parameter, signature
-from typing import Any, Callable, Dict, List, Tuple
+from typing import Any, Callable, Dict, List, Tuple, Type
 
 import h5py
 import joblib
@@ -33,70 +33,6 @@ except ImportError:
 __all__ = [
     "ExportableClassMixin",
 ]
-
-
-def saveable_class(
-    api_version: float,
-    attributes: List[str] = None,
-    functions: List[str] = None,
-) -> Callable[[ExportableClassMixin], ExportableClassMixin]:
-    if attributes is None:
-        attributes = []
-    if functions is None:
-        functions = []
-
-    def decorator(cls: ExportableClassMixin) -> ExportableClassMixin:
-        if not issubclass(cls, ExportableClassMixin):
-            raise ValueError(
-                "Only subclasses of ExportableClassMixin can be decorated with saveable_class"
-            )
-        attribute_names = []
-        function_names = []
-
-        exportable_functions = []
-        exportable_attributes = []
-
-        for parent in reversed(inspect.getmro(cls)):
-            if hasattr(parent, "_exportable_attributes"):
-                for attr in parent._exportable_attributes:
-                    bound_class, symbol = attr.split(".")
-                    attribute_names.append(symbol)
-            if hasattr(parent, "_exportable_functions"):
-                for fcn in parent._exportable_functions:
-                    bound_class, symbol = fcn.split(".")
-                    function_names.append(symbol)
-        for attr in attributes:
-            attribute_names.append(attr)
-
-        for fcn in functions:
-            function_names.append(fcn)
-
-        for symbol in attribute_names:
-            if not hasattr(cls, symbol):
-                raise ValueError(
-                    f"{cls} and its parents does not have property/attribute {symbol} at runtime. Dynamically added attributes are not supported."
-                )
-            try:
-                exportable_attributes.append(getattr(cls, symbol).__qualname__)
-            except AttributeError:
-                raise ValueError(
-                    f"{cls}.{symbol} is a property. Saving properties is not supported as they dont have __dict__ entries. Make {symbol} a cached property instead."
-                ) from None
-
-        for symbol in function_names:
-            if not hasattr(cls, symbol):
-                raise ValueError(
-                    f"{cls} and its parents does not have function {symbol}"
-                )
-            exportable_functions.append(getattr(cls, symbol).__qualname__)
-
-        cls._exportable_functions = set(exportable_functions)
-        cls._exportable_attributes = set(exportable_attributes)
-        cls.api_version = api_version
-
-        return cls
-
-    return decorator
 
 
 class ExportableClassMixin(metaclass=ABCMeta):
@@ -150,6 +86,8 @@ class ExportableClassMixin(metaclass=ABCMeta):
         values = list(self._constructor_args.values())
 
         digest = joblib.hash(keys + values, hash_name="sha1")
+        if digest is None:
+            return None
         return int.from_bytes(bytes(digest, encoding="utf-8"), "big")
 
     def __getnewargs_ex__(self):
@@ -204,7 +142,7 @@ class ExportableClassMixin(metaclass=ABCMeta):
                 raise H5StoreException(msg)
             entry = hdf5_file[group]
 
-            if cls.__name__ in entry:
+            if cls.__name__ in entry:  # type: ignore
                 init_kw_type, init_kws = ExportableClassMixin._load_h5_entry(
                     path, f"{group}/{cls.__name__}"
                 )
@@ -233,7 +171,7 @@ class ExportableClassMixin(metaclass=ABCMeta):
                 )
 
             try:
-                class_name = read_h5_attr(base, "class")
+                class_name = read_h5_attr(base, "class")  # type: ignore
             except KeyError as exc:
                 msg = f"Failed to load {group} because the class name was not stored!"
                 loguru.logger.error(msg)
@@ -243,7 +181,7 @@ class ExportableClassMixin(metaclass=ABCMeta):
                 loguru.logger.error(msg)
                 raise H5StoreException(msg)
 
-            for entry_name in base:
+            for entry_name in base:  # type: ignore
                 # The class constructor should have already been read
                 if entry_name == self.__class__.__name__:
                     continue
@@ -421,7 +359,7 @@ class ExportableClassMixin(metaclass=ABCMeta):
         entry_name: str,
         value: Any,
         existing_groups: Dict[str, Any],
-        attributes: Dict[str, Any] = None,
+        attributes: Dict[str, Any] | None = None,
     ):
         from prepper.io_handlers import dump_custom_h5_type, write_h5_attr
 
@@ -443,7 +381,7 @@ class ExportableClassMixin(metaclass=ABCMeta):
             new_entry = hdf5_file[entry_name]
             for k, v in attributes.items():
                 try:
-                    write_h5_attr(new_entry, k, v)
+                    write_h5_attr(new_entry, k, v)  # type: ignore
                 except H5StoreException:
                     msg = (
                         f"Failed to write attribute {k} to group {new_entry}!"
@@ -485,10 +423,77 @@ class ExportableClassMixin(metaclass=ABCMeta):
             return entry_type
 
 
+C = Type[ExportableClassMixin]  # class being wrapped by the decorator
+
+
+def saveable_class(
+    api_version: float,
+    attributes: List[str] | None = None,
+    functions: List[str] | None = None,
+) -> Callable[[C], C]:
+    if attributes is None:
+        attributes = []
+    if functions is None:
+        functions = []
+
+    def decorator(cls: C) -> C:
+        if not issubclass(cls, ExportableClassMixin):
+            raise ValueError(
+                "Only subclasses of ExportableClassMixin can be decorated with saveable_class"
+            )
+        attribute_names: List[str] = []
+        function_names: List[str] = []
+
+        exportable_functions: List[str] = []
+        exportable_attributes: List[str] = []
+
+        for parent in reversed(inspect.getmro(cls)):
+            if hasattr(parent, "_exportable_attributes"):
+                for attr in parent._exportable_attributes:  # type: ignore
+                    bound_class, symbol = attr.split(".")
+                    attribute_names.append(symbol)
+            if hasattr(parent, "_exportable_functions"):
+                for fcn in parent._exportable_functions:  # type: ignore
+                    bound_class, symbol = fcn.split(".")
+                    function_names.append(symbol)
+        for attr in attributes:
+            attribute_names.append(attr)
+
+        for fcn in functions:
+            function_names.append(fcn)
+
+        for symbol in attribute_names:
+            if not hasattr(cls, symbol):
+                raise ValueError(
+                    f"{cls} and its parents does not have property/attribute {symbol} at runtime. Dynamically added attributes are not supported."
+                )
+            try:
+                exportable_attributes.append(getattr(cls, symbol).__qualname__)
+            except AttributeError:
+                raise ValueError(
+                    f"{cls}.{symbol} is a property. Saving properties is not supported as they dont have __dict__ entries. Make {symbol} a cached property instead."
+                ) from None
+
+        for symbol in function_names:
+            if not hasattr(cls, symbol):
+                raise ValueError(
+                    f"{cls} and its parents does not have function {symbol}"
+                )
+            exportable_functions.append(getattr(cls, symbol).__qualname__)
+
+        cls._exportable_functions = list(set(exportable_functions))
+        cls._exportable_attributes = list(set(exportable_attributes))
+        cls.api_version = api_version
+
+        return cls
+
+    return decorator
+
+
 if __name__ == "__main__":
 
     @saveable_class(
-        "0.0.1", attributes=["test_string", "test_array", "test_array2"]
+        0.1, attributes=["test_string", "test_array", "test_array2"]
     )
     class SimpleSaveableClass(ExportableClassMixin):
         """

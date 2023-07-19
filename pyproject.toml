@@ -35,7 +35,7 @@ write_to = "prepper/_version.py"
 line-length = 79
 target-version = "py311"
 ignore = ["E501"]
-
+exclude = ["**/*.pyi"]
 [tool.ruff.isort]
 force-sort-within-sections = true
 required-imports = ["from __future__ import annotations"]
@@ -85,3 +85,19 @@ too-few-public-methods,
 global-statement
 """
 ignore = "tests"
+
+[tool.pyright]
+pythonVersion = "3.11"
+pythonPlatform = "Linux"
+stubPath = "typings"
+typeCheckingMode = "basic"
+reportUnusedImport = "none"
+reportUnusedClass = "none"
+reportUnusedFunction = "none"
+reportUnusedVariable = "none"
+reportDuplicateImport = "none"
+reportPrivateImportUsage = "none"
+reportUntypedFunctionDecorator = true
+reportUntypedClassDecorator = true
+reportMissingImports = false
+exclude = ["hydroview*","install*", "public*", "**/tests*", "**/resources*"]
