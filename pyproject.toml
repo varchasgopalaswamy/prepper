@@ -31,6 +31,9 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools_scm]
 write_to = "prepper/_version.py"
 
+[tool.setuptools.packages.find]
+exclude = ["typings*"]
+
 [tool.ruff]
 line-length = 79
 target-version = "py311"
