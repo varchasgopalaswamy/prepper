@@ -81,12 +81,11 @@ def test_saveable_class():
     ]
     pytest.raises(ValueError, decorator, NotASaveableClass)
     decorated = decorator(SimpleSaveableClass)
-    assert decorated._exportable_functions == set(
-        ["SimpleSaveableClass.square"]
-    )
-    assert decorated._exportable_attributes == set(
-        ["SimpleSaveableClass.test_string"]
-    )
+    assert decorated._exportable_functions == ["SimpleSaveableClass.square"]
+    assert decorated._exportable_attributes == [
+        "SimpleSaveableClass.test_string"
+    ]
+
     for d in bad_decorators:
         pytest.raises(ValueError, d, SimpleSaveableClass)
 
