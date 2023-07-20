@@ -103,4 +103,4 @@ reportPrivateImportUsage = "none"
 reportUntypedFunctionDecorator = true
 reportUntypedClassDecorator = true
 reportMissingImports = false
-exclude = ["hydroview*","install*", "public*", "**/tests*", "**/resources*"]
+exclude = ["install*", "public*", "**/tests*", "**/resources*"]
