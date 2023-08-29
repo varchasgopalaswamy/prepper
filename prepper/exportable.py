@@ -13,7 +13,7 @@ import uuid
 import warnings
 from abc import ABCMeta
 from inspect import Parameter, signature
-from typing import Any, Callable, Dict, List, Tuple, Type
+from typing import Any, Callable, Dict, List, Tuple, TypeVar
 
 import h5py
 import joblib
@@ -423,7 +423,7 @@ class ExportableClassMixin(metaclass=ABCMeta):
             return entry_type
 
 
-C = Type[ExportableClassMixin]  # class being wrapped by the decorator
+C = TypeVar("C")  # class being wrapped by the decorator
 
 
 def saveable_class(
