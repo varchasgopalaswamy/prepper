@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Union, Any
+from typing import TYPE_CHECKING, Union, Any, TypeAlias
 import loguru
 import numpy as np
 
@@ -11,13 +11,13 @@ except ImportError:
     xr = None
 
 try:
-    from periodictable.core import Element, Isotope
-    import periodictable
+    from periodictable import elements
 except ImportError:
-    Element = None
-    Isotope = None
-    periodictable = None
+    elements = None
 
+if TYPE_CHECKING:
+    from periodictable.core import Element, Isotope
+    
 
 
 def check_equality(value1: Any, value2:Any, log:bool=False) -> bool:
@@ -97,7 +97,10 @@ def get_element_from_number_and_weight(z: float, a: float) -> Isotope | Element:
 
     # Iterates over elements in the periodic table to
     # find the element that matches the atomic number and weight.
-    for element in periodictable.elements:
+    if elements is None:
+        raise ImportError("Could not import periodictable")
+
+    for element in elements:
         for iso in element:
             e_z = iso.number  # atomic number of the current element
             e_a = iso.mass  # atomic mass of the current element
