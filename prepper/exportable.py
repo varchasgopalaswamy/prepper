@@ -13,14 +13,15 @@ import uuid
 import warnings
 from abc import ABCMeta
 from inspect import Parameter, signature
-from typing import Any, Callable, Dict, List, Tuple, TypeVar
+from typing import Any, Callable, Dict, List, NewType, Tuple, Type, TypeVar
+from typing import Generic, ParamSpec, TypeVar
 
 import h5py
 import joblib
 import loguru
 import numpy as np
 
-from prepper import H5StoreException
+from prepper import H5StoreException, cached_property
 from prepper.caching import break_key, make_cache_name
 from prepper.enums import H5StoreTypes
 from prepper.utils import check_equality
@@ -423,24 +424,25 @@ class ExportableClassMixin(metaclass=ABCMeta):
             return entry_type
 
 
-C = TypeVar("C")  # class being wrapped by the decorator
 
 
+E = TypeVar("E")
 def saveable_class(
     api_version: float,
     attributes: List[str] | None = None,
     functions: List[str] | None = None,
-) -> Callable[[C], C]:
+) -> Callable[[Type[E]], Type[E]]:
     if attributes is None:
         attributes = []
     if functions is None:
         functions = []
 
-    def decorator(cls: C) -> C:
+    def decorator(cls: Type[E]) -> Type[E]:
         if not issubclass(cls, ExportableClassMixin):
             raise ValueError(
                 "Only subclasses of ExportableClassMixin can be decorated with saveable_class"
             )
+
         attribute_names: List[str] = []
         function_names: List[str] = []
 
@@ -485,7 +487,7 @@ def saveable_class(
         cls._exportable_attributes = list(set(exportable_attributes))
         cls.api_version = api_version
 
-        return cls
+        return cls # type: ignore
 
     return decorator
 
@@ -493,7 +495,8 @@ def saveable_class(
 if __name__ == "__main__":
 
     @saveable_class(
-        0.1, attributes=["test_string", "test_array", "test_array2"]
+        0.1,
+        attributes=["test_string", "test_array"]
     )
     class SimpleSaveableClass(ExportableClassMixin):
         """
@@ -503,9 +506,18 @@ if __name__ == "__main__":
 
         def __init__(self):
             super().__init__()
-            self.test_string = "test string SimpleSaveableClass"
-            self.test_array = np.random.random(size=(1000, 1000))
-            self.test_array2 = self.test_array
+        @cached_property
+        def test_string(self):
+            return "test string SimpleSaveableClass"
+        @cached_property
+        def test_array(self):
+            return np.random.random(size=(1000, 1000))
 
     test_instance = SimpleSaveableClass()
-    test_instance.to_hdf5("/b1/vgop/test.hdf5")
+    _ = test_instance.test_array
+    _ = test_instance.test_string
+    with tempfile.NamedTemporaryFile() as tmp:
+        test_instance.to_hdf5(tmp.name)
+
+        new_instanace = SimpleSaveableClass.from_hdf5(tmp.name)
+        assert test_instance.test_string == new_instanace.test_string
