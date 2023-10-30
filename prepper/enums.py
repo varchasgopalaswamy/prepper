@@ -30,5 +30,5 @@ class H5StoreTypes(Enum):
     ArViz = 13
 
 
-def add_enum_item(name: str):
+def add_enum_item(name: str) -> None:
     extend_enum(H5StoreTypes, name, len(H5StoreTypes) + 1)

@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Union
-
+from typing import TYPE_CHECKING, Union, Any
 import loguru
 import numpy as np
 
@@ -11,13 +10,17 @@ try:
 except ImportError:
     xr = None
 
-if TYPE_CHECKING:
+try:
+    from periodictable.core import Element, Isotope
     import periodictable
+except ImportError:
+    Element = None
+    Isotope = None
+    periodictable = None
 
-    ElementType = Union[periodictable.core.Isotope, periodictable.core.Element]
 
 
-def check_equality(value1, value2, log=False):
+def check_equality(value1: Any, value2:Any, log:bool=False) -> bool:
     """
     Check if two objects are equal
     """
@@ -81,13 +84,12 @@ def check_equality(value1, value2, log=False):
             ) from e
 
 
-def get_element_from_number_and_weight(z: float, a: float) -> ElementType:
+def get_element_from_number_and_weight(z: float, a: float) -> Isotope | Element:
     """
     This function takes in a float value 'z' representing the atomic number,
     and another float value 'a' representing the atomic mass, and returns
     an object of type ElementType.
     """
-    import periodictable
 
     # Initialize variables
     elm = None
