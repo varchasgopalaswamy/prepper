@@ -13,8 +13,7 @@ import uuid
 import warnings
 from abc import ABCMeta
 from inspect import Parameter, signature
-from typing import Any, Callable, Dict, List, NewType, Tuple, Type, TypeVar
-from typing import Generic, ParamSpec, TypeVar
+from typing import Any, Callable, Dict, List, Tuple, Type, TypeVar
 
 import h5py
 import joblib
@@ -424,9 +423,9 @@ class ExportableClassMixin(metaclass=ABCMeta):
             return entry_type
 
 
-
-
 E = TypeVar("E")
+
+
 def saveable_class(
     api_version: float,
     attributes: List[str] | None = None,
@@ -487,17 +486,14 @@ def saveable_class(
         cls._exportable_attributes = list(set(exportable_attributes))
         cls.api_version = api_version
 
-        return cls # type: ignore
+        return cls  # type: ignore
 
     return decorator
 
 
 if __name__ == "__main__":
 
-    @saveable_class(
-        0.1,
-        attributes=["test_string", "test_array"]
-    )
+    @saveable_class(0.1, attributes=["test_string", "test_array"])
     class SimpleSaveableClass(ExportableClassMixin):
         """
         A simple saveable class, used to test saving as an attribute of another
@@ -506,9 +502,11 @@ if __name__ == "__main__":
 
         def __init__(self):
             super().__init__()
+
         @cached_property
         def test_string(self):
             return "test string SimpleSaveableClass"
+
         @cached_property
         def test_array(self):
             return np.random.random(size=(1000, 1000))
