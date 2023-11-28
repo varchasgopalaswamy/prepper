@@ -4,8 +4,17 @@ from __future__ import annotations
 import functools
 from collections.abc import Callable
 from functools import update_wrapper
-from typing import Generic, overload, Type, TypeVar, Union
-from typing import Any, Dict, Generic, List, Tuple, overload, TYPE_CHECKING, TypeVar, Union
+from typing import (
+    Any,
+    Dict,
+    Generic,
+    List,
+    overload,
+    Tuple,
+    Type,
+    TypeVar,
+    Union,
+)
 
 from joblib import hash as joblib_hash
 from numpy import ndarray
@@ -53,7 +62,7 @@ class _HashedSeq(list):
         return self.hashvalue
 
 
-def break_key(key: Any) -> Tuple[List[Any], Dict[str,Any]]:
+def break_key(key: Any) -> Tuple[List[Any], Dict[str, Any]]:
     "Breaks a function cache key into the args and kwargs"
     args = []
     kwargs = {}

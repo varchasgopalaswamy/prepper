@@ -4,13 +4,12 @@ from __future__ import annotations
 import datetime
 import importlib
 import numbers
-
 import re
 import tempfile
 import traceback
 from collections.abc import Iterable
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Dict, List, Sequence, Tuple, Type, Union
+from typing import Any, Dict, List, Sequence, Tuple, Type, TYPE_CHECKING, Union
 
 import h5py
 import loguru
@@ -33,7 +32,7 @@ except ImportError:
     pt = None
 
 try:
-    from auto_uncertainties import Uncertainty, nominal_values
+    from auto_uncertainties import nominal_values, Uncertainty
 except ImportError:
     Uncertainty = None
     nominal_values = None
@@ -52,11 +51,10 @@ except ImportError:
     ur = None
 
 if TYPE_CHECKING:
-    from xarray import Dataset
-    from periodictable.core import Element, Isotope
-
     from arviz import InferenceData
     from auto_uncertainties import Uncertainty
+    from periodictable.core import Element, Isotope
+    from xarray import Dataset
 
 __all__ = [
     "dump_custom_h5_type",

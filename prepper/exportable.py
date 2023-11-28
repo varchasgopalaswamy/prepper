@@ -20,7 +20,7 @@ import joblib
 import loguru
 import numpy as np
 
-from prepper import H5StoreException, cached_property
+from prepper import cached_property, H5StoreException
 from prepper.caching import break_key, make_cache_name
 from prepper.enums import H5StoreTypes
 from prepper.utils import check_equality
