@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import functools
 from collections.abc import Callable
-from functools import update_wrapper
+from functools import update_wrapper, wraps
 from typing import (
     Any,
     Dict,
@@ -114,6 +114,7 @@ def chunks(lst, n):
 def _cache_wrapper(user_function):
     # Constants shared by all lru cache instances:
 
+    @wraps(user_function)
     def wrapper(instance, *args, **kwds):
         cache = object.__getattribute__(instance, "__dict__")
         key = _make_key(args, dict(sorted(kwds.items())))
