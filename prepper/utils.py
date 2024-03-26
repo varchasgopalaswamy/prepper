@@ -34,8 +34,11 @@ def check_equality(value1: Any, value2: Any, log: bool = False) -> bool:
 
     # Just try to do a comparison
     try:
+        loguru.logger.disable("prepper")
         same = value1 == value2
         same = bool(same)
+        loguru.logger.enable("prepper")
+
         if not same:
             if log:
                 loguru.logger.debug(
