@@ -842,7 +842,7 @@ def load_unit_or_error_ndarrays(file: str, group: str):
                 raise H5StoreException
             try:
                 v = v[0]
-            except IndexError:
+            except (IndexError, TypeError):
                 pass
     return v
 

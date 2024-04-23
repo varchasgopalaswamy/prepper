@@ -25,11 +25,6 @@ from prepper.caching import break_key, make_cache_name
 from prepper.enums import H5StoreTypes
 from prepper.utils import check_equality
 
-try:
-    from auto_uncertainties import NumpyDowncastWarning
-except ImportError:
-    NumpyDowncastWarning = None
-
 __all__ = [
     "ExportableClassMixin",
 ]
@@ -41,7 +36,7 @@ class ExportableClassMixin(metaclass=ABCMeta):
 
     """
 
-    _constructor_args: Dict[str, Any] = {}
+    _constructor_args: Dict[str, Any]
     api_version: float
     _exportable_attributes: List[str]
     _exportable_functions: List[str]
@@ -235,10 +230,6 @@ class ExportableClassMixin(metaclass=ABCMeta):
                 warnings.simplefilter(
                     "ignore", category=np.VisibleDeprecationWarning
                 )
-                if NumpyDowncastWarning is not None:
-                    warnings.simplefilter(
-                        "ignore", category=NumpyDowncastWarning
-                    )
                 self._write_hdf5_contents(
                     temp_file, group="/", existing_groups={}
                 )
