@@ -54,7 +54,6 @@ def isotope_substitution(formula, source, target, portion=...):
     .. deprecated:: 1.5.3
         Use formula.replace(source, target, portion) instead.
     """
-    ...
 
 class Molecule:
     """
@@ -117,7 +116,6 @@ class Molecule:
 
         Changed 1.5.3: fix errors in SLD calculations.
         """
-        ...
 
 class Sequence(Molecule):
     """
@@ -143,13 +141,11 @@ class Sequence(Molecule):
 
         Yields one FASTA sequence each cycle.
         """
-        ...
     @staticmethod
     def load(filename, type=...):  # -> Sequence:
         """
         Load the first FASTA sequence from a file.
         """
-        ...
     def __init__(self, name, sequence, type=...) -> None: ...
 
 H2O_SLD = ...
@@ -173,7 +169,6 @@ def D2Omatch(Hsld, Dsld):
 
     Change 1.5.3: corrected D2O sld, which will change the computed match point.
     """
-    ...
 
 def read_fasta(fp):  # -> Generator[tuple[Unknown, LiteralString], Any, None]:
     """
@@ -183,7 +178,6 @@ def read_fasta(fp):  # -> Generator[tuple[Unknown, LiteralString], Any, None]:
 
     Change 1.5.3: Now uses H[1] rather than T for labile hydrogen.
     """
-    ...
 
 def _(code, V, formula, name): ...
 

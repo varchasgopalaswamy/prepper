@@ -33,7 +33,6 @@ def cell_volume(a=..., b=..., c=..., alpha=..., beta=..., gamma=...):
         V = a b c \sqrt{1 - \cos^2 \alpha - \cos^2 \beta - \cos^2 \gamma
                           + 2 \cos \alpha \cos \beta \cos \gamma}
     """
-    ...
 
 def require_keywords(
     function,
@@ -45,7 +44,8 @@ def require_keywords(
     For example:
 
         >>> @require_keywords
-        ... def fn(a, b, c=3): pass
+        ... def fn(a, b, c=3):
+        ...     pass
         >>> fn(1, 2, 3)
         Traceback (most recent call last):
         ...
@@ -56,7 +56,8 @@ def require_keywords(
     Variable arguments are not currently supported:
 
         >>> @require_keywords
-        ... def fn(a, b, c=6, *args, **kw): pass
+        ... def fn(a, b, c=6, *args, **kw):
+        ...     pass
         Traceback (most recent call last):
         ...
         NotImplementedError: only named arguments for now
@@ -68,4 +69,3 @@ def require_keywords(
     use the \*args, \*\*kw call style.  Python 3+ provides the '\*' call
     signature element which will force all keywords after '\*' to be named.
     """
-    ...

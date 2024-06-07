@@ -49,7 +49,6 @@ def data_files():  # -> list[Unknown]:
     used directly in setup(..., data_files=...) for setup.py.
 
     """
-    ...
 
 __all__ += core.define_elements(elements, globals())
 
@@ -98,7 +97,6 @@ def formula(*args, **kw):
     be used as a basis for a rich text representation such as
     matplotlib TeX markup.
     """
-    ...
 
 def mix_by_weight(*args, **kw):  # -> Formula:
     """
@@ -136,7 +134,6 @@ def mix_by_weight(*args, **kw):  # -> Formula:
     If density is not given, then it will be computed from the density
     of the components, assuming equal volume.
     """
-    ...
 
 def mix_by_volume(*args, **kw):  # -> Formula:
     """
@@ -176,7 +173,6 @@ def mix_by_volume(*args, **kw):  # -> Formula:
     assuming the components take up no more nor less space because they
     are in the mixture.
     """
-    ...
 
 def neutron_sld(
     *args, **kw
@@ -188,7 +184,6 @@ def neutron_sld(
 
     See :class:`periodictable.nsf.neutron_sld` for details.
     """
-    ...
 
 def neutron_scattering(
     *args, **kw
@@ -202,7 +197,6 @@ def neutron_scattering(
 
     See :func:`periodictable.nsf.neutron_scattering` for details.
     """
-    ...
 
 def xray_sld(
     *args, **kw
@@ -216,4 +210,3 @@ def xray_sld(
 
     See :class:`periodictable.xsf.Xray` for details.
     """
-    ...

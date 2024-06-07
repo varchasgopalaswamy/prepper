@@ -1,13 +1,12 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
 
-import pytest
 from hypothesis import given, strategies
 from hypothesis.extra import numpy as hnp
+import pytest
 
 from prepper import (
-    cached_property,
     ExportableClassMixin,
+    cached_property,
     local_cache,
     saveable_class,
 )
@@ -79,12 +78,10 @@ def test_saveable_class():
             functions=["square"],
         ),
     ]
-    pytest.raises(ValueError, decorator, NotASaveableClass)
+    pytest.raises(TypeError, decorator, NotASaveableClass)
     decorated = decorator(SimpleSaveableClass)
     assert decorated._exportable_functions == ["SimpleSaveableClass.square"]
-    assert decorated._exportable_attributes == [
-        "SimpleSaveableClass.test_string"
-    ]
+    assert decorated._exportable_attributes == ["SimpleSaveableClass.test_string"]
 
     for d in bad_decorators:
         pytest.raises(ValueError, d, SimpleSaveableClass)
@@ -94,7 +91,7 @@ def test_cached_property():
     test_class = SimpleSaveableClass2()
 
     # Make sure __dict__ doesn't have the cached property
-    assert not any("test_string" in k for k in test_class.__dict__.keys())
+    assert not any("test_string" in k for k in test_class.__dict__)
 
     # Make sure the cached property works correctly with the super() call
     assert (
@@ -115,9 +112,7 @@ def test_cached_property():
 
 @given(
     hnp.arrays(
-        elements=strategies.floats(
-            allow_nan=False, allow_infinity=False, width=32
-        ),
+        elements=strategies.floats(allow_nan=False, allow_infinity=False, width=32),
         shape=(10,),
         dtype=float,
     )
@@ -131,8 +126,7 @@ def test_local_cache(x):
 
         # Make sure the cache is stores the parent and child calls
         assert (
-            test_class2.__dict__["__cache_SimpleSaveableClass.square__"][key]
-            == x_**2
+            test_class2.__dict__["__cache_SimpleSaveableClass.square__"][key] == x_**2
         )
         assert (
             test_class2.__dict__["__cache_SimpleSaveableClass2.square__"][key]

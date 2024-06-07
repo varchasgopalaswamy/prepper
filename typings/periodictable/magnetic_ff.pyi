@@ -18,13 +18,11 @@ def formfactor_0(j0, q):
     """
     Returns the scattering potential for form factor *j0* at the given *q*.
     """
-    ...
 
 def formfactor_n(jn, q):
     """
     Returns the scattering potential for form factor *jn* at the given *q*.
     """
-    ...
 
 class MagneticFormFactor:
     """
@@ -55,8 +53,9 @@ class MagneticFormFactor:
 
         >>> import periodictable
         >>> ion = periodictable.Fe.ion[2]
-        >>> print("[%.5f, %.5f, %.5f]"
-        ...       % tuple(ion.magnetic_ff[ion.charge].M_Q([0, 0.1, 0.2])))
+        >>> print(
+        ...     "[%.5f, %.5f, %.5f]" % tuple(ion.magnetic_ff[ion.charge].M_Q([0, 0.1, 0.2]))
+        ... )
         [1.00000, 0.99935, 0.99741]
 
     """
@@ -64,23 +63,17 @@ class MagneticFormFactor:
     M = ...
     def j0_Q(self, Q):
         """Returns *j0* scattering potential at *Q* |1/Ang|"""
-        ...
     def j2_Q(self, Q):
         """Returns *j2* scattering potential at *Q* |1/Ang|"""
-        ...
     def j4_Q(self, Q):
         """Returns *j4* scattering potential at *Q* |1/Ang|"""
-        ...
     def j6_Q(self, Q):
         """Returns j6 scattering potential at *Q* |1/Ang|"""
-        ...
     def J_Q(self, Q):
         """Returns J scattering potential at *Q* |1/Ang|"""
-        ...
     M_Q = ...
 
 def init(table, reload=...):  # -> None:
     """Add magnetic form factor properties to the periodic table"""
-    ...
 
 CFML_DATA = ...

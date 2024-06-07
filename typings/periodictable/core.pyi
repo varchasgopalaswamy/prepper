@@ -59,7 +59,7 @@ Helper functions:
 """
 from __future__ import annotations
 
-from typing import Dict, Iterator, List
+from collections.abc import Iterator
 
 from pint._typing import QuantityOrUnitLike as Quantity
 
@@ -81,9 +81,7 @@ __all__ = [
 ]
 PUBLIC_TABLE_NAME = ...
 
-def delayed_load(
-    all_props, loader, element=..., isotope=..., ion=...
-):  # -> None:
+def delayed_load(all_props, loader, element=..., isotope=..., ion=...):  # -> None:
     """
     Delayed loading of an element property table.  When any of property
     is first accessed the loader will be called to load the associated
@@ -96,7 +94,6 @@ def delayed_load(
     keyword flags *element*, *isotope* and/or *ion* to specify which
     of these classes will be assigned specific information on load.
     """
-    ...
 
 class PeriodicTable:
     """
@@ -114,11 +111,11 @@ class PeriodicTable:
         Fe
         >>> print(elements.Fe)
         Fe
-        >>> print(elements.symbol('Fe'))
+        >>> print(elements.symbol("Fe"))
         Fe
-        >>> print(elements.name('iron'))
+        >>> print(elements.name("iron"))
         Fe
-        >>> print(elements.isotope('Fe'))
+        >>> print(elements.isotope("Fe"))
         Fe
 
 
@@ -130,7 +127,7 @@ class PeriodicTable:
         56-Fe
         >>> print(elements.Fe[56])
         56-Fe
-        >>> print(elements.isotope('56-Fe'))
+        >>> print(elements.isotope("56-Fe"))
         56-Fe
 
 
@@ -143,7 +140,9 @@ class PeriodicTable:
 
         >>> from periodictable import *
         >>> for el in elements:  # lists the element symbols
-        ...     print("%s %s"%(el.symbol, el.name))  # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
+        ...     print(
+        ...         "%s %s" % (el.symbol, el.name)
+        ...     )  # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
         n neutron
         H hydrogen
         He helium
@@ -157,8 +156,8 @@ class PeriodicTable:
            See section :ref:`Adding properties <extending>` for details.
     """
 
-    properties: List[str]
-    _elements: Dict[int, Element]
+    properties: list[str]
+    _elements: dict[int, Element]
     D: Isotope
     T: Isotope
     n: Element
@@ -285,14 +284,12 @@ class PeriodicTable:
         """
         Retrieve element Z.
         """
-        ...
     def __iter__(
         self,
     ) -> Iterator[Element]:  # -> Generator[Unknown, Any, None]:
         """
         Process the elements in Z order
         """
-        ...
     def symbol(self, input: str) -> Element | Isotope:  # -> Element | Isotope:
         """
         Lookup the an element in the periodic table using its symbol.  Symbols
@@ -312,10 +309,9 @@ class PeriodicTable:
         .. doctest::
 
             >>> import periodictable
-            >>> print(periodictable.elements.symbol('Fe'))
+            >>> print(periodictable.elements.symbol("Fe"))
             Fe
         """
-        ...
     def name(self, input: str) -> Element | Isotope:  # -> Element | Isotope
         """
         Lookup an element given its name.
@@ -334,13 +330,10 @@ class PeriodicTable:
         .. doctest::
 
             >>> import periodictable
-            >>> print(periodictable.elements.name('iron'))
+            >>> print(periodictable.elements.name("iron"))
             Fe
         """
-        ...
-    def isotope(
-        self, input: str
-    ) -> Element | Isotope:  # -> Element | Isotope:
+    def isotope(self, input: str) -> Element | Isotope:  # -> Element | Isotope:
         """
         Lookup the element or isotope in the periodic table. Elements
         are assumed to be given by the standard element symbols. Isotopes
@@ -360,10 +353,9 @@ class PeriodicTable:
         .. doctest::
 
             >>> import periodictable
-            >>> print(periodictable.elements.isotope('58-Ni'))
+            >>> print(periodictable.elements.isotope("58-Ni"))
             58-Ni
         """
-        ...
     def list(self, *props, **kw):  # -> None:
         """
         Print a list of elements with the given set of properties.
@@ -390,7 +382,6 @@ class PeriodicTable:
             ...
             Bk: 247.00 u  14.00 g/cm^3
         """
-        ...
 
 class IonSet:
     def __init__(self, element_or_isotope) -> None: ...
@@ -410,7 +401,6 @@ class Ion:
     def __getattr__(self, attr): ...
     @property
     def mass(self): ...
-    def __str__(self) -> str: ...
     def __repr__(self): ...
     def __reduce__(self): ...
 
@@ -443,7 +433,6 @@ class Isotope:
 
     def __init__(self, element, isotope_number) -> None: ...
     def __getattr__(self, attr): ...
-    def __str__(self) -> str: ...
     def __repr__(self): ...
     def __reduce__(self): ...
 
@@ -466,7 +455,7 @@ class Element:
     density: float
     mass_units: str
     density_units: str
-    _isotopes: List[Isotope]
+    _isotopes: list[Isotope]
 
     # added in lotus
     base_symbol: str | None
@@ -474,13 +463,10 @@ class Element:
     udensity: Quantity | None
     isotope_id: int | None
 
-    def __init__(
-        self, name: str, symbol: str, Z: int, ions, table
-    ) -> None: ...
+    def __init__(self, name: str, symbol: str, Z: int, ions, table) -> None: ...
     @property
-    def isotopes(self) -> List[int]:  # -> list[Unknown]:
+    def isotopes(self) -> list[int]:  # -> list[Unknown]:
         """List of all isotopes"""
-        ...
     def add_isotope(self, number):
         """
         Add an isotope for the element.
@@ -491,7 +477,6 @@ class Element:
 
         :Returns: None
         """
-        ...
     def __getitem__(self, number: int) -> Isotope: ...
     def __iter__(
         self,
@@ -499,29 +484,23 @@ class Element:
         """
         Process the isotopes in order
         """
-        ...
     def __repr__(self): ...
     def __reduce__(self): ...
 
 def isatom(val):  # -> bool:
     """Return true if value is an element, isotope or ion"""
-    ...
 
 def isisotope(val):  # -> bool:
     """Return true if value is an isotope or isotope ion."""
-    ...
 
 def ision(val):  # -> bool:
     """Return true if value is a specific ion of an element or isotope"""
-    ...
 
 def iselement(val):  # -> bool:
     """Return true if value is an element or ion in natural abundance"""
-    ...
 
 def change_table(atom, table):
     """Search for the same element, isotope or ion from a different table"""
-    ...
 
 PRIVATE_TABLES = ...
 element_base = ...
@@ -536,7 +515,6 @@ def default_table(table=...):  # -> PeriodicTable:
             table = core.default_table(table)
             ...
     """
-    ...
 
 def define_elements(table, namespace):  # -> list[Unknown]:
     """
@@ -546,7 +524,7 @@ def define_elements(table, namespace):  # -> list[Unknown]:
     This is called from *__init__* as::
 
         elements = core.default_table()
-        __all__  += core.define_elements(elements, globals())
+        __all__ += core.define_elements(elements, globals())
 
     :Parameters:
          *table* : PeriodicTable
@@ -558,7 +536,6 @@ def define_elements(table, namespace):  # -> list[Unknown]:
 
     .. Note:: This will only work for *namespace* globals(), not locals()!
     """
-    ...
 
 def get_data_path(data):  # -> str:
     """
@@ -572,6 +549,5 @@ def get_data_path(data):  # -> str:
     :Returns: string
          Path to the data.
     """
-    ...
 
 PUBLIC_TABLE = ...

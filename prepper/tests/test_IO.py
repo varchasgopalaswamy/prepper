@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
 
 import inspect
@@ -10,8 +9,8 @@ from hypothesis import given, settings, strategies
 from hypothesis.extra import numpy as hnp
 
 from prepper import (
-    cached_property,
     ExportableClassMixin,
+    cached_property,
     local_cache,
     saveable_class,
 )
@@ -68,9 +67,7 @@ def roundtrip(obj: ExportableClassMixin, should_not_be_saved=None):
 
 @given(
     hnp.arrays(
-        elements=strategies.floats(
-            allow_nan=False, allow_infinity=False, width=32
-        ),
+        elements=strategies.floats(allow_nan=False, allow_infinity=False, width=32),
         shape=hnp.array_shapes(min_dims=1, max_dims=4),
         dtype=float,
     )
@@ -124,9 +121,7 @@ def test_with_str_list(x):
 
 @given(
     hnp.arrays(
-        elements=strategies.floats(
-            allow_nan=False, allow_infinity=False, width=32
-        ),
+        elements=strategies.floats(allow_nan=False, allow_infinity=False, width=32),
         shape=hnp.array_shapes(min_dims=1, max_dims=4),
         dtype=float,
     )

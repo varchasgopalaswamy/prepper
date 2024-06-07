@@ -18,7 +18,6 @@ def getCMformula(symbol):
 
     Return instance of CromerMannFormula.
     """
-    ...
 
 def fxrayatq(symbol, Q, charge=...):
     """
@@ -33,7 +32,6 @@ def fxrayatq(symbol, Q, charge=...):
 
     Return float or numpy array.
     """
-    ...
 
 def fxrayatstol(symbol, stol, charge=...):
     """
@@ -48,7 +46,6 @@ def fxrayatstol(symbol, stol, charge=...):
 
     Return float or numpy.array.
     """
-    ...
 
 class CromerMannFormula:
     """
@@ -79,7 +76,6 @@ class CromerMannFormula:
 
         No return value
         """
-        ...
     def atstol(self, stol):  # -> Any:
         """
         Calculate x-ray scattering factors at specified sin(theta)/lambda
@@ -89,6 +85,5 @@ class CromerMannFormula:
 
         Return float or numpy.array.
         """
-        ...
 
 _cmformulas = ...

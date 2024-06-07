@@ -1,7 +1,6 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
 
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import loguru
 import numpy as np
@@ -19,8 +18,10 @@ except ImportError:
 if TYPE_CHECKING:
     from periodictable.core import Element, Isotope
 
+__all__ = ["check_equality", "get_element_from_number_and_weight"]
 
-def check_equality(value1: Any, value2: Any, log: bool = False) -> bool:
+
+def check_equality(value1: Any, value2: Any, *, log: bool = False) -> bool:
     """
     Check if two objects are equal
     """
@@ -39,12 +40,9 @@ def check_equality(value1: Any, value2: Any, log: bool = False) -> bool:
         same = bool(same)
         loguru.logger.enable("prepper")
 
-        if not same:
-            if log:
-                loguru.logger.debug(
-                    f"Values are different: {value1} and {value2}"
-                )
-        return same
+        if not same and log:
+            loguru.logger.debug(f"Values are different: {value1} and {value2}")
+
     except Exception:
         # Maybe it's a numpy array
         # check if the dimensions are compatible
@@ -55,9 +53,7 @@ def check_equality(value1: Any, value2: Any, log: bool = False) -> bool:
                         f"Dims are different: {np.ndim(value1)} and {np.ndim(value2)} for values {value1} and {value2}"
                     )
                 return False
-            if hasattr(value1, "units") and not value1.is_compatible_with(
-                value2
-            ):
+            if hasattr(value1, "units") and not value1.is_compatible_with(value2):
                 if log:
                     loguru.logger.debug(
                         f"Units are different: {getattr(value1,'units','')} and {getattr(value2,'units','')}"
@@ -68,12 +64,10 @@ def check_equality(value1: Any, value2: Any, log: bool = False) -> bool:
                 same = np.allclose(value1, value2)
             except Exception:
                 same = all(value1 == value2)
-            if not same:
-                if log:
-                    loguru.logger.debug(
-                        f"Numpy check: values are different: {value1} and {value2}"
-                    )
-            return same
+            if not same and log:
+                loguru.logger.debug(
+                    f"Numpy check: values are different: {value1} and {value2}"
+                )
         except Exception as e:
             if not isinstance(value1, type(value2)):
                 if log:
@@ -82,14 +76,15 @@ def check_equality(value1: Any, value2: Any, log: bool = False) -> bool:
                     )
                 return False
 
-            raise ValueError(
-                f"Cannot compare {value1} and {value2} of type {type(value1)} and {type(value2)}"
-            ) from e
+            msg = f"Cannot compare {value1} and {value2} of type {type(value1)} and {type(value2)}"
+            raise ValueError(msg) from e
+        else:
+            return same
+    else:
+        return same
 
 
-def get_element_from_number_and_weight(
-    z: float, a: float
-) -> Isotope | Element:
+def get_element_from_number_and_weight(z: float, a: float) -> Isotope | Element:
     """
     This function takes in a float value 'z' representing the atomic number,
     and another float value 'a' representing the atomic mass, and returns
@@ -103,7 +98,8 @@ def get_element_from_number_and_weight(
     # Iterates over elements in the periodic table to
     # find the element that matches the atomic number and weight.
     if elements is None:
-        raise ImportError("Could not import periodictable")
+        msg = "Could not import periodictable"
+        raise ImportError(msg)
 
     for element in elements:
         for iso in element:
@@ -117,9 +113,8 @@ def get_element_from_number_and_weight(
                 elm = iso
     # If we didnt find an element, raise a ValueError exception
     if elm is None:
-        raise ValueError(
-            f"Could not find a matching element for A = {a} and Z = {z}"
-        )
+        msg = f"Could not find a matching element for A = {a} and Z = {z}"
+        raise ValueError(msg)
 
     # If the found element is the base element, just return the base element
     if np.abs(elm.element.mass - elm.mass) < 0.3:

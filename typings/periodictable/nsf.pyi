@@ -187,7 +187,6 @@ def neutron_wavelength(energy):  # -> NDArray[Any]:
         $m_n$ = neutron mass in kg
 
     """
-    ...
 
 def neutron_wavelength_from_velocity(velocity):
     r"""
@@ -211,7 +210,6 @@ def neutron_wavelength_from_velocity(velocity):
 
         $m_n$ = neutron mass in kg
     """
-    ...
 
 def neutron_energy(wavelength):  # -> NDArray[floating[Any]]:
     r"""
@@ -235,7 +233,6 @@ def neutron_energy(wavelength):  # -> NDArray[floating[Any]]:
 
         $m_n$ = neutron mass in kg
     """
-    ...
 
 _4PI_100 = ...
 
@@ -327,6 +324,7 @@ class Neutron:
 
     .. Note:: 1 barn = 100 |fm^2|
     """
+
     b_c = ...
     b_c_units = ...
     b_c_i = ...
@@ -352,13 +350,9 @@ class Neutron:
     is_energy_dependent = ...
     nsf_table = ...
     def __init__(self) -> None: ...
-    def __str__(self) -> str: ...
     def has_sld(self):  # -> bool:
         """Returns *True* if sld is defined for this element/isotope."""
-        ...
-    def scattering_by_wavelength(
-        self, wavelength
-    ):  # -> tuple[Unknown, Unknown]:
+    def scattering_by_wavelength(self, wavelength):  # -> tuple[Unknown, Unknown]:
         r"""
         Return scattering length and total cross section for each wavelength.
 
@@ -377,7 +371,6 @@ class Neutron:
 
             *sigma_s* \: float(s) | barn
         """
-        ...
     @require_keywords
     def sld(
         self, wavelength=...
@@ -397,7 +390,6 @@ class Neutron:
 
         See :func:`neutron_scattering` for details.
         """
-        ...
     @require_keywords
     def scattering(
         self, wavelength=...
@@ -424,14 +416,12 @@ class Neutron:
 
         See :func:`neutron_scattering` for details.
         """
-        ...
 
 def energy_dependent_init(table): ...
 def init(table, reload=...):  # -> None:
     """
     Loads the Rauch table from the neutron data book.
     """
-    ...
 
 @require_keywords
 def neutron_scattering(
@@ -683,7 +673,6 @@ def neutron_scattering(
         t_u\,({\rm cm}) &= 1/(\Sigma_{\rm s}\, 1/{\rm cm}
             \,+\, \Sigma_{\rm abs}\, 1/{\rm cm})
     """
-    ...
 
 def neutron_sld(
     *args, **kw
@@ -714,7 +703,6 @@ def neutron_sld(
     Returns the scattering length density of the compound.
     See :func:`neutron_scattering` for details.
     """
-    ...
 
 def neutron_sld_from_atoms(
     *args, **kw
@@ -725,7 +713,6 @@ def neutron_sld_from_atoms(
         :func:`neutron_sld` accepts dictionaries of \{atom\: count\}.
 
     """
-    ...
 
 def D2O_match(compound, **kw):  # -> tuple[Unknown | float, Unknown]:
     """
@@ -744,7 +731,6 @@ def D2O_match(compound, **kw):  # -> tuple[Unknown | float, Unknown]:
     100% you will need an additional constrast agent in the 100% D2O
     solvent to increase the SLD enough to match.
     """
-    ...
 
 def D2O_sld(
     compound, volume_fraction=..., D2O_fraction=..., **kw
@@ -781,13 +767,11 @@ def D2O_sld(
 
     Returns (real, imag, incoh) SLD.
     """
-    ...
 
 def mix_values(a, b, fraction):  # -> tuple[Unknown, ...]:
     """
     Mix two tuples with floating point values according to fraction of a.
     """
-    ...
 
 def neutron_composite_sld(
     materials, wavelength=...
@@ -817,7 +801,6 @@ def neutron_composite_sld(
     the calculation consists of a few simple array operations regardless
     of the size of the material fragments.
     """
-    ...
 
 def sld_plot(table=...):  # -> None:
     r"""
@@ -829,7 +812,6 @@ def sld_plot(table=...):  # -> None:
 
     :Returns: None
     """
-    ...
 
 nsftable = ...
 nsftableI = ...
@@ -840,7 +822,6 @@ def fix_number(str):  # -> float | None:
     uncertainty. Also accepts a limited range, e.g., <1e-6, which is
     converted as 1e-6.  Missing values are set to 0.
     """
-    ...
 
 def sld_table(wavelength=..., table=..., isotopes=...):  # -> None:
     r"""
@@ -872,7 +853,6 @@ def sld_table(wavelength=..., table=..., isotopes=...):  # -> None:
         248-Cm  248.072  13.569   2.536   0.000   0.207
         * Energy dependent cross sections
     """
-    ...
 
 def energy_dependent_table(table=...):  # -> None:
     r"""
@@ -896,7 +876,6 @@ def energy_dependent_table(table=...):  # -> None:
             Yb-168
             Hg-196 Hg-199
     """
-    ...
 
 def compare(fn1, fn2, table=..., tol=...): ...
 def absorption_comparison_table(table=..., tol=...):  # -> None:
@@ -925,7 +904,9 @@ def absorption_comparison_table(table=..., tol=...):  # -> None:
 
     Example
 
-        >>> absorption_comparison_table (tol=0.5) # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
+        >>> absorption_comparison_table(
+        ...     tol=0.5
+        ... )  # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
         Comparison of absorption and (-2000 lambda b_c_i)
               3-He  5333.00  5322.08   0.2%
                 Li    70.50     ----
@@ -936,7 +917,6 @@ def absorption_comparison_table(table=..., tol=...):  # -> None:
            ...
 
     """
-    ...
 
 def coherent_comparison_table(table=..., tol=...):  # -> None:
     r"""
@@ -956,7 +936,7 @@ def coherent_comparison_table(table=..., tol=...):  # -> None:
 
     Example
 
-        >>> coherent_comparison_table (tol=0.5) # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
+        >>> coherent_comparison_table(tol=0.5)  # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
         Comparison of (4 pi |b_c|^2/100) and coherent
                  n   172.03    43.01 300.0%
                1-n   172.03    43.01 300.0%
@@ -968,7 +948,6 @@ def coherent_comparison_table(table=..., tol=...):  # -> None:
            ...
 
     """
-    ...
 
 def total_comparison_table(table=..., tol=...):  # -> None:
     r"""
@@ -987,7 +966,7 @@ def total_comparison_table(table=..., tol=...):  # -> None:
 
     Example
 
-        >>> total_comparison_table (tol=0.1)
+        >>> total_comparison_table(tol=0.1)
         Comparison of total cross section to (coherent + incoherent)
                  n    43.01     ----
                1-n    43.01     ----
@@ -1001,7 +980,6 @@ def total_comparison_table(table=..., tol=...):  # -> None:
             187-Os    13.00    13.30  -2.3%
 
     """
-    ...
 
 def incoherent_comparison_table(table=..., tol=...):  # -> None:
     r"""
@@ -1018,7 +996,9 @@ def incoherent_comparison_table(table=..., tol=...):  # -> None:
 
     Example
 
-        >>> incoherent_comparison_table (tol=0.5) # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
+        >>> incoherent_comparison_table(
+        ...     tol=0.5
+        ... )  # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
         Comparison of incoherent and (total - 4 pi |b_c|^2/100)
                 Sc     4.50     5.10 -11.8%
              45-Sc     4.50     5.10 -11.8%
@@ -1028,13 +1008,11 @@ def incoherent_comparison_table(table=..., tol=...):  # -> None:
            ...
 
     """
-    ...
 
 def print_scattering(compound, wavelength=...):  # -> None:
     """
     Print the scattering for a single compound.
     """
-    ...
 
 def main():  # -> None:
     """
@@ -1052,6 +1030,5 @@ def main():  # -> None:
           sigma_c: 3.37503  sigma_i: 0.000582313  sigma_a: 0.402605  1/cm
           1/e penetration: 2.23871 cm
     """
-    ...
 
 if __name__ == "__main__": ...
