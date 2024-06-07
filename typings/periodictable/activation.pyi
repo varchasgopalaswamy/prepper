@@ -84,7 +84,6 @@ def NIST2001_isotopic_abundance(iso):
     Isotopic Compositions of the Elements, 2001.
     J. Phys. Chem. Ref. Data, Vol. 34, No. 1, 2005
     """
-    ...
 
 def IAEA1987_isotopic_abundance(iso):  # -> Literal[0]:
     """
@@ -96,7 +95,6 @@ def IAEA1987_isotopic_abundance(iso):  # -> Literal[0]:
 
     IAEA 273: Handbook on Nuclear Activation Data, 1987.
     """
-    ...
 
 class Sample:
     """
@@ -134,13 +132,11 @@ class Sample:
         default it uses :func:`NIST2001_isotopic_abundance`, and there is the alternative
         :func:`IAEA1987_isotopic_abundance`.
         """
-        ...
     def decay_time(self, target):  # -> Literal[0]:
         """
         After determining the activation, compute the number of hours required to achieve
         a total activation level after decay.
         """
-        ...
     def show_table(self, cutoff=..., format=...):  # -> None:
         """
         Tabulate the daughter products.
@@ -153,7 +149,6 @@ class Sample:
 
               The number format to use for the activation.
         """
-        ...
 
 def find_root(x, f, df, max=..., tol=...):  # -> tuple[Unknown, Unknown]:
     r"""
@@ -164,11 +159,9 @@ def find_root(x, f, df, max=..., tol=...):  # -> tuple[Unknown, Unknown]:
 
     Returns x, f(x).
     """
-    ...
 
 def sorted_activity(activity_pair):  # -> list[Unknown]:
     """Interator over activity pairs sorted by isotope then daughter product."""
-    ...
 
 class ActivationEnvironment:
     """
@@ -200,26 +193,21 @@ class ActivationEnvironment:
         Used as a multiplier times the resonance cross section to add to the
         thermal cross section for all thermal induced reactions.
         """
-        ...
 
 COLUMN_NAMES = ...
 INT_COLUMNS = ...
 BOOL_COLUMNS = ...
 FLOAT_COLUMNS = ...
 
-def activity(
-    isotope, mass, env, exposure, rest_times
-):  # -> dict[Unknown, Unknown]:
+def activity(isotope, mass, env, exposure, rest_times):  # -> dict[Unknown, Unknown]:
     """
     Compute isotope specific daughter products after the given exposure time and rest period.
     """
-    ...
 
 def init(table, reload=...):  # -> None:
     """
     Add neutron activation levels to each isotope.
     """
-    ...
 
 class ActivationResult:
     def __init__(self, **kw) -> None: ...

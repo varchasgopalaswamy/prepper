@@ -66,7 +66,6 @@ def mass(isotope):
         *Coursey. J. S., Schwab. D. J, and Dragoset. R. A.,
         NIST Atomic Weights and Isotopic Composition Database.*
     """
-    ...
 
 def abundance(isotope):
     """
@@ -82,10 +81,8 @@ def abundance(isotope):
         *Coursey. J. S., Schwab. D. J, and Dragoset. R. A., NIST Atomic
         Weights and Isotopic Composition Database.*
     """
-    ...
 
 def init(table, reload=...):  # -> None:
     """Add mass attribute to period table elements and isotopes"""
-    ...
 
 massdata = ...

@@ -53,7 +53,6 @@ def mix_by_weight(*args, **kw):  # -> Formula:
     density calculation assumes the cell volume remains constant for the
     original materials, which is not in general the case.
     """
-    ...
 
 def mix_by_volume(*args, **kw):  # -> Formula:
     """
@@ -97,11 +96,8 @@ def mix_by_volume(*args, **kw):  # -> Formula:
     assumes the cell volume remains constant for the original materials,
     which is not in general the case.
     """
-    ...
 
-def formula(
-    compound=..., density=..., natural_density=..., name=..., table=...
-):
+def formula(compound=..., density=..., natural_density=..., name=..., table=...):
     r"""
     Construct a chemical formula representation from a string, a
     dictionary of atoms or another formula.
@@ -129,20 +125,21 @@ def formula(
     After creating a formula, a rough estimate of the density can be
     computed using::
 
-        formula.density = formula.molecular_mass/formula.volume(packing_factor=...)
+        formula.density = formula.molecular_mass / formula.volume(packing_factor=...)
 
     The volume() calculation uses the covalent radii of the components and
     the known packing factor or crystal structure name.  If the lattice
     constants for the crystal are known, then they can be used instead::
 
-        formula.density = formula.molecular_mass/formula.volume(a, b, c, alpha, beta, gamma)
+        formula.density = formula.molecular_mass / formula.volume(
+            a, b, c, alpha, beta, gamma
+        )
 
     Formulas are designed for calculating quantities such as molar mass and
     scattering length density, not for representing bonds or atom positions.
     The representations are simple, but preserve some of the structure for
     display purposes.
     """
-    ...
 
 class Formula:
     """
@@ -162,7 +159,6 @@ class Formula:
         the *count* as the total number of each element or isotope in the
         chemical formula, summed across all subgroups.
         """
-        ...
     @property
     def hill(self):
         """
@@ -172,7 +168,6 @@ class Formula:
         first followed by hydrogen then the remaining elements in alphabetical
         order.
         """
-        ...
     def natural_mass_ratio(self):  # -> float:
         """
         Natural mass to isotope mass ratio.
@@ -186,7 +181,6 @@ class Formula:
         preserved with isotope substitution, then the ratio of the masses
         will be the ratio of the densities.
         """
-        ...
     @property
     def natural_density(self):
         """
@@ -196,7 +190,6 @@ class Formula:
         replaced by the naturally occurring abundance of the element
         without changing the cell volume.
         """
-        ...
     @natural_density.setter
     def natural_density(self, natural_density): ...
     @property
@@ -207,7 +200,6 @@ class Formula:
         Molar mass of the molecule.  Use molecular_mass to get the mass in
         grams.
         """
-        ...
     @property
     def molecular_mass(self):  # -> float:
         """
@@ -215,19 +207,16 @@ class Formula:
 
         Mass of the molecule in grams.
         """
-        ...
     @property
     def charge(self):  # -> int:
         """
         Net charge of the molecule.
         """
-        ...
     @property
     def mass_fraction(self):  # -> dict[Unknown, Unknown]:
         """
         Fractional mass representation of each element/isotope/ion.
         """
-        ...
     def volume(self, *args, **kw):
         r"""
         Estimate unit cell volume.
@@ -273,14 +262,13 @@ class Formula:
 
         Using the cell volume, mass density can be set with::
 
-            formula.density = n*formula.molecular_mass/formula.volume()
+            formula.density = n * formula.molecular_mass / formula.volume()
 
         where n is the number of molecules per unit cell.
 
         Note: a single non-keyword argument is interpreted as a packing factor
         rather than a lattice spacing of 'a'.
         """
-        ...
     @require_keywords
     def neutron_sld(
         self, wavelength=..., energy=...
@@ -302,7 +290,6 @@ class Formula:
         .. deprecated:: 0.95
             Use periodictable.neutron_sld(formula) instead.
         """
-        ...
     @require_keywords
     def xray_sld(
         self, energy=..., wavelength=...
@@ -329,12 +316,10 @@ class Formula:
         .. deprecated:: 0.95
             Use periodictable.xray_sld(formula) instead.
         """
-        ...
     def change_table(self, table):  # -> Self@Formula:
         """
         Replace the table used for the components of the formula.
         """
-        ...
     def replace(self, source, target, portion=...):
         """
         Create a new formula with one atom/isotope substituted for another.
@@ -347,30 +332,24 @@ class Formula:
 
         *portion* is the proportion of source which is substituted for target.
         """
-        ...
     def __eq__(self, other) -> bool:
         """
         Return True if two formulas represent the same structure. Note
         that they may still have different names and densities.
         Note: use hill representation for an order independent comparison.
         """
-        ...
     def __add__(self, other):  # -> Formula:
         """
         Join two formulas.
         """
-        ...
     def __iadd__(self, other):  # -> Self@Formula:
         """
         Extend a formula with another.
         """
-        ...
     def __rmul__(self, other):  # -> Self@Formula:
         """
         Provide a multiplier for formula.
         """
-        ...
-    def __str__(self) -> str: ...
     def __repr__(self): ...
 
 LENGTH_UNITS = ...
@@ -396,7 +375,6 @@ def formula_grammar(table):  # -> ParserElement:
             an *element* or a list of pairs (*count, fragment*).
 
     """
-    ...
 
 _PARSER_CACHE = ...
 
@@ -405,4 +383,3 @@ def parse_formula(formula_str, table=...):
     Parse a chemical formula, returning a structure with elements from the
     given periodic table.
     """
-    ...

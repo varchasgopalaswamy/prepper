@@ -62,7 +62,6 @@ def density(iso_el):
         80th ed. (1999).*
 
     """
-    ...
 
 def interatomic_distance(element):  # -> None:
     r"""
@@ -94,7 +93,6 @@ def interatomic_distance(element):  # -> None:
             (10^{-8} cm\cdot \AA^{-1})^3))^{1/3} = \AA
 
     """
-    ...
 
 def number_density(element):  # -> None:
     r"""
@@ -123,7 +121,6 @@ def number_density(element):  # -> None:
             = atoms\cdot cm^{-3}
 
     """
-    ...
 
 def init(table, reload=...): ...
 

@@ -1,24 +1,20 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
 
-import functools
 from collections.abc import Callable
+import functools
 from functools import update_wrapper, wraps
 from typing import (
     Any,
-    Dict,
+    Concatenate,
     Generic,
-    List,
-    overload,
-    Tuple,
-    Type,
+    Self,
     TypeVar,
-    Union,
+    overload,
 )
 
 from joblib import hash as joblib_hash
 from numpy import ndarray
-from typing_extensions import Concatenate, ParamSpec, Self
+from typing_extensions import ParamSpec
 
 __all__ = [
     "break_key",
@@ -62,7 +58,7 @@ class _HashedSeq(list):
         return self.hashvalue
 
 
-def break_key(key: Any) -> Tuple[List[Any], Dict[str, Any]]:
+def break_key(key: Any) -> tuple[list[Any], dict[str, Any]]:
     "Breaks a function cache key into the args and kwargs"
     args = []
     kwargs = {}
@@ -97,10 +93,7 @@ def _make_key(args, kwds):
     if kwds:
         key += (KWD_SENTINEL,)
         for k, v in kwds.items():
-            if isinstance(v, ndarray):
-                v2 = tuple(v.tolist())
-            else:
-                v2 = v
+            v2 = tuple(v.tolist()) if isinstance(v, ndarray) else v
             key += (k, v2)
     return _HashedSeq(key)
 
@@ -145,16 +138,12 @@ class cached_property(Generic[Instance, Value]):
         self.func = func
 
     @overload
-    def __get__(self, instance: Instance, owner: object) -> Value:
-        ...
+    def __get__(self, instance: Instance, owner: object) -> Value: ...
 
     @overload
-    def __get__(self, instance: None, owner: object) -> Self:
-        ...
+    def __get__(self, instance: None, owner: object) -> Self: ...
 
-    def __get__(
-        self, instance: Union[Instance, None], owner: object
-    ) -> Union[Self, Value]:
+    def __get__(self, instance: Instance | None, owner: object) -> Self | Value:
         if instance is None:
             return self
 
@@ -177,30 +166,24 @@ class local_cache(Generic[Instance, Arguments, Value]):
 
     user_func: Callable[Concatenate[Instance, Arguments], Value]
 
-    def __init__(
-        self, wrapped_func: Callable[Concatenate[Instance, Arguments], Value]
-    ):
+    def __init__(self, wrapped_func: Callable[Concatenate[Instance, Arguments], Value]):
         self.user_func = wrapped_func
 
     @overload
     def __get__(
-        self, instance: Instance, owner: Type[Instance]
-    ) -> Callable[Arguments, Value]:
-        ...
+        self, instance: Instance, owner: type[Instance]
+    ) -> Callable[Arguments, Value]: ...
 
     @overload
     def __get__(
-        self, instance: None, owner: Type[Instance]
-    ) -> Callable[Concatenate[Instance, Arguments], Value]:
-        ...
+        self, instance: None, owner: type[Instance]
+    ) -> Callable[Concatenate[Instance, Arguments], Value]: ...
 
-    def __get__(self, instance: Instance | None, owner: Type[Instance]):
+    def __get__(self, instance: Instance | None, owner: type[Instance]):
         if instance is None:
             return self.user_func
         else:
-            partial_function: Callable[
-                Arguments, Value
-            ] = functools.update_wrapper(
+            partial_function: Callable[Arguments, Value] = functools.update_wrapper(
                 functools.partial(_cache_wrapper(self.user_func), instance),
                 self.user_func,
             )  # type: ignore
@@ -215,6 +198,5 @@ class local_cache(Generic[Instance, Arguments, Value]):
         if isinstance(key, _HashedSeq):
             obj.__dict__[fname][key] = return_value
         else:
-            raise ValueError(
-                f"Can't assign {value} to the cache of {self.user_func.__qualname__}!"
-            )
+            msg = f"Can't assign {value} to the cache of {self.user_func.__qualname__}!"
+            raise TypeError(msg)

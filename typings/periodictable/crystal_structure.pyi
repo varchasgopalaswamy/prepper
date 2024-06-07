@@ -50,4 +50,3 @@ def init(table, reload=...):  # -> None:
     """
     Add crystal_structure field to the element properties.
     """
-    ...

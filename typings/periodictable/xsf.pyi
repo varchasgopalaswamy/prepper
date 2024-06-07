@@ -217,7 +217,6 @@ def xray_wavelength(energy):  # -> NDArray[floating[Any]]:
 
         $c$ = speed of light in m/s
     """
-    ...
 
 def xray_energy(wavelength):  # -> NDArray[floating[Any]]:
     r"""
@@ -241,7 +240,6 @@ def xray_energy(wavelength):  # -> NDArray[floating[Any]]:
 
         $c$ = speed of light in m/s
     """
-    ...
 
 class Xray:
     """
@@ -276,7 +274,6 @@ class Xray:
         scattering factors database at the Lawrence Berkeley Laboratory
         Center for X-ray Optics.
         """
-        ...
     def f0(self, Q):
         r"""
         Isotropic X-ray scattering factors *f0* for the input Q.
@@ -300,7 +297,6 @@ class Xray:
              D. Wassmaier, A. Kerfel, Acta Crystallogr. A51 (1995) 416.
              http://dx.doi.org/10.1107/S0108767394013292
         """
-        ...
     @require_keywords
     def sld(
         self, wavelength=..., energy=...
@@ -340,7 +336,6 @@ class Xray:
         Data comes from the Henke Xray scattering factors database at the
         Lawrence Berkeley Laboratory Center for X-ray Optics.
         """
-        ...
 
 @require_keywords
 def xray_sld(
@@ -368,7 +363,6 @@ def xray_sld(
     :Raises:
         *AssertionError* :  *density* or *wavelength*/*energy* is missing.
     """
-    ...
 
 @require_keywords
 def index_of_refraction(
@@ -398,7 +392,6 @@ def index_of_refraction(
     Formula taken from http://xdb.lbl.gov (section 1.7) and checked
     against http://henke.lbl.gov/optical_constants/getdb2.html
     """
-    ...
 
 @require_keywords
 def mirror_reflectivity(
@@ -438,7 +431,6 @@ def mirror_reflectivity(
     Formula taken from http://xdb.lbl.gov (section 4.2) and checked
     against http://henke.lbl.gov/optical_constants/mirror2.html
     """
-    ...
 
 def xray_sld_from_atoms(
     *args, **kw
@@ -448,7 +440,6 @@ def xray_sld_from_atoms(
 
         :func:`xray_sld` now accepts a dictionary of *{atom: count}* directly.
     """
-    ...
 
 spectral_lines_data = ...
 
@@ -456,7 +447,6 @@ def init_spectral_lines(table):  # -> None:
     """
     Sets the K_alpha and K_beta1 wavelengths for select elements
     """
-    ...
 
 def init(table, reload=...): ...
 def plot_xsf(el):  # -> None:
@@ -468,7 +458,6 @@ def plot_xsf(el):  # -> None:
 
     :Returns: None
     """
-    ...
 
 def sld_table(wavelength=..., table=...):  # -> None:
     """
@@ -484,7 +473,7 @@ def sld_table(wavelength=..., table=...):  # -> None:
 
     Example
 
-        >>> sld_table() # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
+        >>> sld_table()  # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
         X-ray scattering length density for 1.5418 Ang
          El    rho   irho
           H   1.19   0.00
@@ -501,7 +490,6 @@ def sld_table(wavelength=..., table=...):  # -> None:
          Mg  14.78   0.22
           ...
     """
-    ...
 
 def emission_table(table=...):  # -> None:
     """
@@ -515,7 +503,7 @@ def emission_table(table=...):  # -> None:
 
     Example
 
-        >>> emission_table() # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
+        >>> emission_table()  # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
          El  Kalpha  Kbeta1
          Ne 14.6102 14.4522
          Na 11.9103 11.5752
@@ -524,4 +512,3 @@ def emission_table(table=...):  # -> None:
          Si  7.1263  6.7531
          ...
     """
-    ...

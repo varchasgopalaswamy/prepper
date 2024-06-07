@@ -18,11 +18,12 @@ dependencies = [
     "pandas >= 1.5.1",
     "joblib >= 1.2.0",
     "typing_extensions >= 4.6.3",
+    "lazy_loader",
 ]
 dynamic = ["version"]
 
 [project.optional-dependencies]
-CI = ["pytest", "pytest-cov","hypothesis","pylint"]
+CI = ["pytest", "pytest-cov","hypothesis","pylint", "xarray", "auto_uncertainties", "periodictable", "arviz", "pint"]
 
 [build-system]
 requires = ["setuptools >= 67.0.0", "setuptools_scm[toml]>=6.2"]
@@ -33,61 +34,6 @@ write_to = "prepper/_version.py"
 
 [tool.setuptools.packages.find]
 exclude = ["typings*"]
-
-[tool.ruff]
-line-length = 79
-target-version = "py311"
-ignore = ["E501"]
-exclude = ["**/*.pyi"]
-[tool.ruff.isort]
-force-sort-within-sections = true
-required-imports = ["from __future__ import annotations"]
-
-[tool.black]
-line-length = 79
-include = '\.pyi?$'
-exclude = '''
-/(
-    \.git
-  | \.hg
-  | \.mypy_cache
-  | \.tox
-  | \.venv
-  | _build
-  | buck-out
-  | build
-  | dist
-)/
-'''
-
-
-[tool.isort]
-profile = "black"
-line_length = 79
-force_alphabetical_sort_within_sections = true
-add_imports = ["from __future__ import annotations"]
-
-[tool.pylint]
-#Enforced by black
-max-line-length = 1000
-
-disable = """
-line-too-long,
-missing-module-docstring,
-missing-function-docstring,
-broad-exception-caught,
-too-many-branches,
-invalid-name,
-protected-access,
-import-outside-toplevel,
-wrong-import-position,
-missing-class-docstring,
-too-many-locals,
-redefined-builtin,
-too-few-public-methods,
-global-statement
-"""
-ignore = "tests"
 
 [tool.pyright]
 pythonVersion = "3.11"

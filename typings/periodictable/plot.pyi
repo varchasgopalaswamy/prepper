@@ -22,4 +22,3 @@ def table_plot(data, form=..., label=..., title=...):  # -> None:
 
     :Returns: None
     """
-    ...
