@@ -490,7 +490,7 @@ if __name__ == "__main__":
     _ = test_instance.test_array
     _ = test_instance.test_string
     with tempfile.NamedTemporaryFile() as tmp:
-        test_instance.to_hdf5(tmp)
+        test_instance.to_hdf5(Path(tmp.name))
 
-        new_instanace = SimpleSaveableClass.from_hdf5(tmp.name)
+        new_instanace = SimpleSaveableClass.from_hdf5(Path(tmp.name))
         assert test_instance.test_string == new_instanace.test_string
