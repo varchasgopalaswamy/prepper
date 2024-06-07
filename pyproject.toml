@@ -23,7 +23,7 @@ dependencies = [
 dynamic = ["version"]
 
 [project.optional-dependencies]
-CI = ["pytest", "pytest-cov","hypothesis","pylint"]
+CI = ["pytest", "pytest-cov","hypothesis","pylint", "xarray", "auto_uncertainties", "periodictable", "arviz", "pint"]
 
 [build-system]
 requires = ["setuptools >= 67.0.0", "setuptools_scm[toml]>=6.2"]

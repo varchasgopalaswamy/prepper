@@ -21,7 +21,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install pre-commit pytest pytest-cov hypothesis
           pre-commit install 
-          pip install .
+          pip install .[CI]
       - name: Run pre-commit checks
         run: |
           pre-commit run --all-files
