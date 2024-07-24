@@ -28,10 +28,10 @@ def check_equality(value1: Any, value2: Any, *, log: bool = False) -> bool:
 
     # Need a special check for xarray Datasets...
     if xr is not None:
-        if isinstance(value1, (xr.Dataset)):
-            return value1.identical(value2)
-        elif isinstance(value2, (xr.Dataset)):
-            return value2.identical(value1)
+        # If both are xarray datasets, check to see if they are the same
+        for xr_type in [xr.Dataset, xr.DataArray]:
+            if isinstance(value1, xr_type) and isinstance(value2, xr_type):
+                return value1.identical(value2)
 
     # Just try to do a comparison
     try:
@@ -69,15 +69,16 @@ def check_equality(value1: Any, value2: Any, *, log: bool = False) -> bool:
                     f"Numpy check: values are different: {value1} and {value2}"
                 )
         except Exception as e:
-            if not isinstance(value1, type(value2)):
-                if log:
-                    loguru.logger.debug(
-                        f"Types are different: {type(value1)} and {type(value2)} for values {value1} and {value2}"
-                    )
-                return False
+            if isinstance(value1, type(value2)):
+                msg = f"Cannot compare {value1} and {value2} of type {type(value1)} and {type(value2)}"
+                raise TypeError(msg) from e
 
-            msg = f"Cannot compare {value1} and {value2} of type {type(value1)} and {type(value2)}"
-            raise ValueError(msg) from e
+            if log:
+                loguru.logger.debug(
+                    f"Types are different: {type(value1)} and {type(value2)} for values {value1} and {value2}"
+                )
+            return False
+
         else:
             return same
     else:

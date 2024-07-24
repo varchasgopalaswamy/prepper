@@ -165,17 +165,18 @@ def dump_custom_h5_type(
     clone_group = None
     if not isinstance(value, TYPES_TO_SKIP_DUPLICATE_CHECKING):
         for k, v in existing_groups.items():
-            try:
-                is_equal = check_equality(value, v)
-            except Exception:
-                is_equal = False
+            if isinstance(v, type(value)):
+                try:
+                    is_equal = check_equality(value, v)
+                except Exception:
+                    is_equal = False
+                if is_equal:
+                    class_already_written = True
+                    clone_group = (
+                        k  # This is the group that this class is already written to
+                    )
+                    break
 
-            if is_equal and isinstance(v, type(value)):
-                class_already_written = True
-                clone_group = (
-                    k  # This is the group that this class is already written to
-                )
-                break
     if class_already_written:
         # This class has already been written to the file, so we just need to write a reference to it
         with h5py.File(file, mode="a", track_order=True) as hdf5_file:

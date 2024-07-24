@@ -10,6 +10,7 @@ from inspect import Parameter, signature
 from pathlib import Path
 import shutil
 import tempfile
+import time
 import traceback
 from typing import Any, TypeVar
 import uuid
@@ -213,8 +214,6 @@ class ExportableClassMixin(metaclass=ABCMeta):
         Save this object to an h5 file
         """
         path = Path(path)
-        if Path.exists(path):
-            loguru.logger.warning(f"HDF5 file {path} exists... overwriting.")
 
         if not Path.exists(Path(path).parent):
             msg = f"The parent directory for {path} does not exist!"
@@ -230,6 +229,8 @@ class ExportableClassMixin(metaclass=ABCMeta):
                 self._write_hdf5_contents(
                     Path(temp_file), group="/", existing_groups={}
                 )
+            if Path.exists(path):
+                loguru.logger.warning(f"HDF5 file {path} exists... overwriting.")
             shutil.copyfile(src=temp_file, dst=path)
 
     def _write_hdf5_contents(
@@ -240,6 +241,11 @@ class ExportableClassMixin(metaclass=ABCMeta):
         attributes=None,
     ):
         from prepper.io_handlers import dump_class_constructor, write_h5_attr
+
+        start_time = time.time()
+        loguru.logger.debug(
+            f"Writing {self.__class__.__name__} to {file} in group {group}"
+        )
 
         existing_groups[group] = self
 
@@ -335,6 +341,10 @@ class ExportableClassMixin(metaclass=ABCMeta):
                             value,
                             existing_groups,
                         )
+        end_time = time.time()
+        loguru.logger.debug(
+            f"Writing {self.__class__.__name__} to {file} in group {group} took {end_time - start_time} seconds"
+        )
         return existing_groups
 
     @staticmethod
