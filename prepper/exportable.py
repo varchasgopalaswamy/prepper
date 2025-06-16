@@ -225,7 +225,7 @@ class ExportableClassMixin(metaclass=ABCMeta):
             file.close()
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", category=FutureWarning)
-                warnings.simplefilter("ignore", category=np.VisibleDeprecationWarning)
+                warnings.simplefilter("ignore", category=np.exceptions.VisibleDeprecationWarning)
                 self._write_hdf5_contents(
                     Path(temp_file), group="/", existing_groups={}
                 )
