@@ -18,9 +18,9 @@ from typing_extensions import ParamSpec
 
 __all__ = [
     "break_key",
-    "make_cache_name",
     "cached_property",
     "local_cache",
+    "make_cache_name",
 ]
 
 KWD_SENTINEL = "__prepper_kwd_sentinel__"
@@ -66,8 +66,7 @@ def break_key(key: Any) -> tuple[list[Any], dict[str, Any]]:
         kwd_split_idx = key.index(KWD_SENTINEL)
         args = key[0:kwd_split_idx]
         assert len(key[kwd_split_idx + 1 :]) % 2 == 0
-        for k, v in chunks(key[kwd_split_idx + 1 :], 2):
-            kwargs[k] = v
+        kwargs = dict(chunks(key[kwd_split_idx + 1 :], 2))
     else:
         args = key
     return args, kwargs

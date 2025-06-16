@@ -58,15 +58,15 @@ if TYPE_CHECKING:
     from xarray import Dataset
 
 __all__ = [
-    "dump_custom_h5_type",
-    "read_h5_attr",
-    "write_h5_attr",
-    "load_custom_h5_type",
     "dump_class_constructor",
+    "dump_custom_h5_type",
+    "get_hdf5_compression",
+    "load_custom_h5_type",
+    "read_h5_attr",
     "register_loader",
     "register_writer",
-    "get_hdf5_compression",
     "set_hdf5_compression",
+    "write_h5_attr",
 ]
 
 _NONE_TYPE_SENTINEL = "__python_None_sentinel__"
@@ -308,8 +308,10 @@ def dump_hdf5_group(
 
 @_register(DEFAULT_H5_LOADERS, H5StoreTypes.HDF5Group)
 def load_hdf5_group(file: Path, group: str):
-    tf = tempfile.TemporaryFile()
-    with h5py.File(file, "r", track_order=True) as hdf5_file:
+    with (
+        tempfile.TemporaryFile() as tf,
+        h5py.File(file, "r", track_order=True) as hdf5_file,
+    ):
         f = h5py.File(tf, "w")
         hdf5_file.copy(source=f"{group}/value", dest=f["/"], name="value")
 

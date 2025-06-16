@@ -936,7 +936,9 @@ def coherent_comparison_table(table=..., tol=...):  # -> None:
 
     Example
 
-        >>> coherent_comparison_table(tol=0.5)  # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
+        >>> coherent_comparison_table(
+        ...     tol=0.5
+        ... )  # doctest: +ELLIPSIS, +NORMALIZE_WHITESPACE
         Comparison of (4 pi |b_c|^2/100) and coherent
                  n   172.03    43.01 300.0%
                1-n   172.03    43.01 300.0%
