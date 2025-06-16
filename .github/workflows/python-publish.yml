@@ -6,16 +6,17 @@ name: Upload Python Package
 on:
   release:
     types: [published]
-
-permissions:
-  contents: read
+    
 
 env:
   UV_SYSTEM_PYTHON: 1
   
 jobs:
   pypi:
-
+  
+    permissions:
+        id-token: write
+        
     runs-on: ubuntu-latest
 
     steps:
