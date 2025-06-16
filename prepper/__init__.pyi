@@ -43,9 +43,9 @@ from .tests import (
 )
 
 __all__ = [
+    "NATIVE_DTYPES",
     "ExportableClassMixin",
     "H5StoreException",
-    "NATIVE_DTYPES",
     "NotASaveableClass",
     "SimpleSaveableClass",
     "SimpleSaveableClass2",

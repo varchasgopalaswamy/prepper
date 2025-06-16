@@ -61,7 +61,7 @@ ignore = ["E501", "ISC002", "ISC001",
 exclude = ["typings/*", "prepper/tests/*"]
 
 [lint.per-file-ignores]
-"__init__.py" = ["F401", "E402", "I001", "I002"]
+"__init__.py" = ["F401", "E402", "I001", "I002", "F811"]
 "__init__.pyi" = ["F401", "E402", "I001", "I002"]
 
 [format]

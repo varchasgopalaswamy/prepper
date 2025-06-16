@@ -56,7 +56,7 @@ def check_equality(value1: Any, value2: Any, *, log: bool = False) -> bool:
             if hasattr(value1, "units") and not value1.is_compatible_with(value2):
                 if log:
                     loguru.logger.debug(
-                        f"Units are different: {getattr(value1,'units','')} and {getattr(value2,'units','')}"
+                        f"Units are different: {getattr(value1, 'units', '')} and {getattr(value2, 'units', '')}"
                     )
                 return False
             # do a numpy comparison
