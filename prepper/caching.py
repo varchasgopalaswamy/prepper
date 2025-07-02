@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 import functools
 from functools import update_wrapper, wraps
+import inspect
 from typing import (
     Any,
     Concatenate,
@@ -167,6 +168,7 @@ class local_cache(Generic[Instance, Arguments, Value]):
 
     def __init__(self, wrapped_func: Callable[Concatenate[Instance, Arguments], Value]):
         self.user_func = wrapped_func
+        self.display_formatter = functools.partial(display_formatter, func=wrapped_func)
 
     @overload
     def __get__(
@@ -186,6 +188,13 @@ class local_cache(Generic[Instance, Arguments, Value]):
                 functools.partial(_cache_wrapper(self.user_func), instance),
                 self.user_func,
             )  # type: ignore
+            partial_function.__repr__ = self.display_formatter
+            partial_function.__str__ = self.display_formatter
+            partial_function._repr_html_ = self.display_formatter  # type: ignore
+            if self.user_func.__doc__ is not None:
+                partial_function.__doc__ = self.user_func.__doc__
+            else:
+                partial_function.__doc__ = f"Cached version of {self.user_func.__module__}.{self.user_func.__qualname__}"
             return partial_function
 
     def __set__(self, obj, value):
@@ -199,3 +208,15 @@ class local_cache(Generic[Instance, Arguments, Value]):
         else:
             msg = f"Can't assign {value} to the cache of {self.user_func.__qualname__}!"
             raise TypeError(msg)
+
+
+def display_formatter(func: Callable[..., Any]) -> str:
+    is_in_main = func.__module__ == "__main__"
+    display_name = f"{func.__module__}.{func.__qualname__}"
+    function_signature = (
+        str(inspect.signature(func)).replace("(self, ", "(").replace(" ", "")
+    )
+    display_name = f"{display_name}{function_signature}"
+    if is_in_main:
+        display_name = f"<{display_name}>"
+    return display_name
