@@ -139,10 +139,13 @@ class cached_property(Generic[Instance, Value]):
     property. Implementation adapted from https://github.com/pydanny/cached-property
     """
 
-    __slots__ = ("func",)
+    __slots__ = ("__name__", "__qualname__", "__type_params__", "func")
     func: Callable[[Instance], Value]
 
     def __init__(self, func: Callable[[Instance], Value]):
+        self.__name__ = func.__name__
+        self.__qualname__ = func.__qualname__
+        self.__type_params__ = func.__type_params__
         self.func = func
 
     @overload
