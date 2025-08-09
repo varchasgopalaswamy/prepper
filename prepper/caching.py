@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 import functools
-from functools import update_wrapper, wraps
+from functools import wraps
 import inspect
 from typing import (
     Any,
@@ -118,7 +118,15 @@ def _cache_wrapper(user_function):
                 return function_cache[key]
         else:
             cache[fname] = {}
-        result = user_function(instance, *args, **kwds)
+        try:
+            result = user_function(instance, *args, **kwds)
+        except Exception as e:
+            tb = e.__traceback__
+            if tb:
+                tb = tb.tb_next
+            e.__traceback__ = tb
+            del e, tb
+            raise
         cache[fname][key] = result
         return result
 
@@ -131,10 +139,10 @@ class cached_property(Generic[Instance, Value]):
     property. Implementation adapted from https://github.com/pydanny/cached-property
     """
 
+    __slots__ = ("func",)
     func: Callable[[Instance], Value]
 
     def __init__(self, func: Callable[[Instance], Value]):
-        update_wrapper(self, func)  # type: ignore
         self.func = func
 
     @overload
@@ -144,16 +152,23 @@ class cached_property(Generic[Instance, Value]):
     def __get__(self, instance: None, owner: object) -> Self: ...
 
     def __get__(self, instance: Instance | None, owner: object) -> Self | Value:
-        if instance is None:
-            return self
+        try:
+            if instance is None:
+                return self
+            qualname = self.func.__qualname__
+            if qualname in instance.__dict__:
+                return instance.__dict__[qualname]
 
-        qualname = self.func.__qualname__
-        if qualname in instance.__dict__:
-            return instance.__dict__[qualname]
+            instance.__dict__[self.func.__qualname__] = self.func(instance)
 
-        instance.__dict__[self.func.__qualname__] = self.func(instance)
-
-        return instance.__dict__[self.func.__qualname__]
+            return instance.__dict__[self.func.__qualname__]
+        except Exception as e:
+            tb = e.__traceback__
+            if tb:
+                tb = tb.tb_next
+            e.__traceback__ = tb
+            del e, tb
+            raise
 
 
 class local_cache(Generic[Instance, Arguments, Value]):
