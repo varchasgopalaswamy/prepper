@@ -39,12 +39,6 @@ except ImportError:
     nominal_values = None
 
 try:
-    import arviz as az
-except ImportError:
-    az = None
-
-
-try:
     import pint
 
     ur = pint.get_application_registry()
@@ -74,8 +68,7 @@ _EMPTY_TYPE_SENTINEL = "__python_Empty_sentinel__"
 
 PYTHON_BASIC_TYPES = (int, float, str)
 TYPES_TO_SKIP_DUPLICATE_CHECKING = (*PYTHON_BASIC_TYPES, bool)
-if az is not None:
-    TYPES_TO_SKIP_DUPLICATE_CHECKING += (az.InferenceData,)
+
 
 NUMPY_NUMERIC_TYPES = (np.int32, np.int64, np.float32, np.float64)
 
@@ -697,34 +690,6 @@ if pt is not None:
             atomic_number = float(get_dataset(entry, "element_Z")[()])
             return get_element_from_number_and_weight(z=atomic_number, a=atomic_weight)
 
-
-if az is not None:
-    #### arviz ####
-    @register_writer(lambda x: isinstance(x, az.InferenceData))
-    def dump_inferencedata(
-        file: Path,
-        group: str,
-        value: InferenceData,
-        existing_groups: dict[str, Any],
-    ) -> tuple[dict[str, Any], dict[str, Any]]:
-        attributes = {}
-
-        value.to_netcdf(
-            str(file),
-            engine="h5netcdf",
-            base_group=group,
-            overwrite_existing=False,
-        )
-
-        attributes["type"] = H5StoreTypes.ArViz.name
-        attributes["timestamp"] = datetime.datetime.now().isoformat()
-        existing_groups[group] = value
-
-        return attributes, existing_groups
-
-    @register_loader(H5StoreTypes.ArViz)
-    def load_inferencedata(file: Path, group: str) -> InferenceData:
-        return az.InferenceData.from_netcdf(file, base_group=group, engine="h5netcdf")
 
 
 #### ndarray with units/error ####
