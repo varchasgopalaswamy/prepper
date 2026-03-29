@@ -9,6 +9,7 @@ select = [
     "T100", 
     "YTT",
     "UP009", 
+    "UP038",
     # pycodestyle
     "E",
     # Pyflakes
