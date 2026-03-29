@@ -46,7 +46,6 @@ except ImportError:
     ur = None
 
 if TYPE_CHECKING:
-    from arviz import InferenceData
     from auto_uncertainties import Uncertainty
     from periodictable.core import Element, Isotope
     from xarray import Dataset
@@ -396,15 +395,17 @@ def load_python_enum(file: Path, group: str) -> type[Enum]:
 #### generic HDF5 dataset ####
 @_register(
     DEFAULT_H5_WRITERS,
-    lambda x: isinstance(x, (PYTHON_BASIC_TYPES, NUMPY_NUMERIC_TYPES, np.ndarray))  # noqa: UP038
-    or (
-        isinstance(x, Iterable)
-        and (not isinstance(x, dict))
-        and all(
-            isinstance(v, ALL_VALID_DATASET_TYPES)  # type: ignore
-            for v in x  # type: ignore
+    lambda x: (
+        isinstance(x, (PYTHON_BASIC_TYPES, NUMPY_NUMERIC_TYPES, np.ndarray))
+        or (
+            isinstance(x, Iterable)
+            and (not isinstance(x, dict))
+            and all(
+                isinstance(v, ALL_VALID_DATASET_TYPES)  # type: ignore
+                for v in x  # type: ignore
+            )
+            and all(isinstance(v, type(x[0])) for v in x)  # type: ignore
         )
-        and all(isinstance(v, type(x[0])) for v in x)  # type: ignore
     ),
 )
 def dump_python_types_or_ndarray(
@@ -689,7 +690,6 @@ if pt is not None:
             atomic_weight = float(get_dataset(entry, "element_A")[()])
             atomic_number = float(get_dataset(entry, "element_Z")[()])
             return get_element_from_number_and_weight(z=atomic_number, a=atomic_weight)
-
 
 
 #### ndarray with units/error ####

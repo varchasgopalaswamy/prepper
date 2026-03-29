@@ -444,11 +444,11 @@ def saveable_class(
         for parent in reversed(inspect.getmro(cls)):
             if hasattr(parent, "_exportable_attributes"):
                 for attr in parent._exportable_attributes:  # type: ignore
-                    bound_class, symbol = attr.split(".")
+                    _bound_class, symbol = attr.split(".")
                     attribute_names.append(symbol)
             if hasattr(parent, "_exportable_functions"):
                 for fcn in parent._exportable_functions:  # type: ignore
-                    bound_class, symbol = fcn.split(".")
+                    _bound_class, symbol = fcn.split(".")
                     function_names.append(symbol)
         attribute_names += attributes
         function_names += functions
