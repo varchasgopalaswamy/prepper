@@ -55,7 +55,7 @@ select = [
 ignore = ["E501", "ISC002", "ISC001", 
 "COM819", "COM812", "Q003", "Q002", "Q001", "Q000", 
 "D300", "D206", "E117", "E114", "E111", "W191",
-"B008", "SIM300", "S101", "RET505", "SLF001", "DTZ005", "RET506"
+"B008", "SIM300", "S101", "RET505", "SLF001", "DTZ005", "RET506", "UP038"
 ]
 
 exclude = ["typings/*", "prepper/tests/*"]
