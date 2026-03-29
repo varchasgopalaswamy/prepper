@@ -15,7 +15,6 @@ dependencies = [
     "h5py >= 3.8.0",
     "loguru >= 0.6.0",
     "aenum >= 3.1.11",
-    "pandas >= 1.5.1",
     "joblib >= 1.2.0",
     "typing_extensions >= 4.6.3",
     "lazy_loader",
