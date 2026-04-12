@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from collections.abc import Callable
 import functools
 from functools import wraps
@@ -8,6 +6,7 @@ from typing import (
     Any,
     Concatenate,
     Generic,
+    ParamSpec,
     Self,
     TypeVar,
     overload,
@@ -15,7 +14,6 @@ from typing import (
 
 from joblib import hash as joblib_hash
 from numpy import ndarray
-from typing_extensions import ParamSpec
 
 __all__ = [
     "break_key",
@@ -55,7 +53,7 @@ class _HashedSeq(list):
         else:
             self.hashvalue = None
 
-    def __hash__(self):
+    def __hash__(self) -> int | None:
         return self.hashvalue
 
 
@@ -198,21 +196,22 @@ class local_cache(Generic[Instance, Arguments, Value]):
         self, instance: None, owner: type[Instance]
     ) -> Callable[Concatenate[Instance, Arguments], Value]: ...
 
-    def __get__(self, instance: Instance | None, owner: type[Instance]):
+    def __get__(self, instance, owner):  # pyright: ignore[reportInconsistentOverload]
         if instance is None:
             return self.user_func
         else:
-            partial_function: Callable[Arguments, Value] = functools.update_wrapper(
+            partial_function = functools.update_wrapper(
                 functools.partial(_cache_wrapper(self.user_func), instance),
                 self.user_func,
-            )  # type: ignore
+            )
             partial_function.__repr__ = self.display_formatter
             partial_function.__str__ = self.display_formatter
-            partial_function._repr_html_ = self.display_formatter  # type: ignore
+            partial_function._repr_html_ = self.display_formatter  # pyright: ignore[reportAttributeAccessIssue]
             if self.user_func.__doc__ is not None:
                 partial_function.__doc__ = self.user_func.__doc__
             else:
                 partial_function.__doc__ = f"Cached version of {self.user_func.__module__}.{self.user_func.__qualname__}"
+
             return partial_function
 
     def __set__(self, obj, value):
@@ -231,9 +230,9 @@ class local_cache(Generic[Instance, Arguments, Value]):
 def display_formatter(func: Callable[..., Any]) -> str:
     is_in_main = func.__module__ == "__main__"
     display_name = f"{func.__module__}.{func.__qualname__}"
-    function_signature = (
-        str(inspect.signature(func)).replace("(self, ", "(").replace(" ", "")
-    )
+
+    sig = inspect.signature(func, eval_str=True)
+    function_signature = str(sig).replace("(self, ", "(").replace(" ", "")
     display_name = f"{display_name}{function_signature}"
     if is_in_main:
         display_name = f"<{display_name}>"

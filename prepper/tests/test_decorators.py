@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from hypothesis import given, strategies
 from hypothesis.extra import numpy as hnp
 import pytest

@@ -1,24 +1,19 @@
 repos:
 
-- repo: local
-  hooks:
-
-  - id: fix-line-endings
-    name: Convert CRLF/CR endings to LF
-    language: python
-    require_serial: true 
-    entry: python hooks/fix_line_endings.py
-    types: ["text"]
-    
 - repo: https://github.com/pre-commit/pre-commit-hooks
-  rev: v5.0.0
+  rev: v6.0.0
   hooks:
   - id: check-executables-have-shebangs
   - id: check-symlinks
-
+  - id: check-added-large-files
+    args: [--maxkb=100000] # 100 MB
+  - id: mixed-line-ending
+    args: ['--fix=lf']
+    description: Forces all line endings to be Linux-style (LF).
+    
 - repo: https://github.com/astral-sh/ruff-pre-commit
   # Ruff version.
-  rev: v0.12.8
+  rev: v0.15.10
   hooks:
     #Run the formatter.
     - id: ruff-format
@@ -27,3 +22,16 @@ repos:
     - id: ruff
       types_or: [ python, pyi, jupyter ]
       args: [ --fix, --exit-non-zero-on-fix ]
+
+- repo: https://github.com/RobertCraigie/pyright-python
+  rev: v1.1.408
+  hooks:
+  - id: pyright 
+    args: ["prepper/"]
+    additional_dependencies:
+      - "numpy"
+      - "h5py >= 3.8.0"
+      - "loguru >= 0.6.0"
+      - "aenum >= 3.1.11"
+      - "joblib >= 1.2.0"
+      - "lazy_loader"

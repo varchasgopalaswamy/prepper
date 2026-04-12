@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from collections.abc import Iterable, Sequence
 import contextlib
 import datetime
@@ -93,7 +91,7 @@ def set_hdf5_compression(compression: dict[str, Any]):
     HDF5_COMPRESSION = compression
 
 
-def write_h5_attr(base: h5py.Group, name: str, value: Any):
+def write_h5_attr(base: h5py.Group | h5py.Dataset, name: str, value: Any):
     if value is None:
         base.attrs[name] = _NONE_TYPE_SENTINEL
     else:
@@ -186,13 +184,11 @@ def dump_custom_h5_type(
             attrs, existing_groups = writer(file, group, value, existing_groups)
 
             with h5py.File(file, mode="a", track_order=True) as hdf5_file:
-                try:
-                    entry = hdf5_file[group]
-                except KeyError:
-                    entry = hdf5_file.require_group(group)
+                entry = hdf5_file[group]
+                assert isinstance(entry, (h5py.Group, h5py.Dataset))
                 for k, v in attrs.items():
                     try:
-                        write_h5_attr(entry, k, v)  # type: ignore
+                        write_h5_attr(entry, k, v)
                     except H5StoreException:
                         msg = f"Failed to write attribute {k} to group {group}!"
                         loguru.logger.error(msg, exc_info=True)
@@ -266,7 +262,7 @@ def load_hdf5_function_cache(file: Path, group: str) -> dict[_HashedSeq, Any]:
     function_calls = {}
     with h5py.File(file, mode="r", track_order=True) as hdf5_file:
         function_group = get_group(hdf5_file, group)
-        for function_call in function_group:  # type: ignore
+        for function_call in function_group:
             arg_group_name = f"{group}/{function_call}/args"
             kwarg_group_name = f"{group}/{function_call}/kwargs"
             value_group_name = f"{group}/{function_call}/value"
@@ -398,13 +394,10 @@ def load_python_enum(file: Path, group: str) -> type[Enum]:
     lambda x: (
         isinstance(x, (PYTHON_BASIC_TYPES, NUMPY_NUMERIC_TYPES, np.ndarray))
         or (
-            isinstance(x, Iterable)
+            isinstance(x, Sequence)
             and (not isinstance(x, dict))
-            and all(
-                isinstance(v, ALL_VALID_DATASET_TYPES)  # type: ignore
-                for v in x  # type: ignore
-            )
-            and all(isinstance(v, type(x[0])) for v in x)  # type: ignore
+            and all(isinstance(v, ALL_VALID_DATASET_TYPES) for v in x)  # pyright: ignore[reportArgumentType]
+            and all(isinstance(v, type(x[0])) for v in x)
         )
     ),
 )
@@ -627,7 +620,7 @@ def load_generic_sequence(file: Path, group: str) -> list[Any]:
 
 if xr is not None:
     #### xarray ####
-    @register_writer(lambda x: isinstance(x, xr.Dataset))
+    @register_writer(lambda x: isinstance(x, xr.Dataset))  # pyright: ignore[reportOptionalMemberAccess]
     def dump_xarray(
         file: Path,
         group: str,
@@ -658,13 +651,13 @@ if xr is not None:
 
     @register_loader(H5StoreTypes.XArrayDataset)
     def load_xarray(file: Path, group: str) -> Dataset:
-        return xr.load_dataset(file, group=group, format="NETCDF4", engine="h5netcdf")
+        return xr.load_dataset(file, group=group, format="NETCDF4", engine="h5netcdf")  # pyright: ignore[reportOptionalMemberAccess]
 
 
 if pt is not None:
 
     @register_writer(
-        lambda x: isinstance(x, pt.core.Isotope | pt.core.Element),
+        lambda x: isinstance(x, pt.core.Isotope | pt.core.Element),  # pyright: ignore[reportOptionalMemberAccess]
     )
     def dump_periodictable_element(
         file: Path,
@@ -694,7 +687,9 @@ if pt is not None:
 
 #### ndarray with units/error ####
 @register_writer(
-    lambda x: isinstance(x, Uncertainty) or hasattr(x, "units"),
+    lambda x: (
+        (Uncertainty is not None and isinstance(x, Uncertainty)) or hasattr(x, "units")
+    ),
 )
 def dump_unit_or_error_ndarrays(
     file: Path, group: str, value: Any, existing_groups: dict[str, Any]

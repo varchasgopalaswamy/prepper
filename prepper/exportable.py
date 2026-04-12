@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from abc import ABCMeta
 from collections.abc import Callable
 import copy
@@ -62,7 +60,7 @@ class ExportableClassMixin(metaclass=ABCMeta):
             loguru.logger.error(f"Failed to initialize {cls.__name__}!")
             raise
 
-        sig = signature(instance.__init__)
+        sig = signature(instance.__init__, eval_str=True)
         bound_args = sig.bind(*args, **kwargs)
         # bound_args.apply_defaults()
         for _, (key, value) in enumerate(bound_args.arguments.items()):
@@ -139,8 +137,8 @@ class ExportableClassMixin(metaclass=ABCMeta):
                 loguru.logger.error(msg)
                 raise H5StoreException(msg)
             entry = hdf5_file[group]
-
-            if cls.__name__ in entry:  # type: ignore
+            assert isinstance(entry, h5py.Group)
+            if cls.__name__ in entry:
                 init_kw_type, init_kws = ExportableClassMixin._load_h5_entry(
                     path, f"{group}/{cls.__name__}"
                 )
@@ -162,13 +160,14 @@ class ExportableClassMixin(metaclass=ABCMeta):
                 raise H5StoreException(msg)
 
             base = hdf5_file[group]
+            assert isinstance(base, h5py.Group)
             entry_type = ExportableClassMixin._get_group_type(base)
             if entry_type != H5StoreTypes.PythonClass:
                 msg = f"_read_hdf5_contents was called on a HDF5 group {group} that is not a python class spec!"
                 raise ValueError(msg)
 
             try:
-                class_name = read_h5_attr(base, "class")  # type: ignore
+                class_name = read_h5_attr(base, "class")
             except KeyError as exc:
                 msg = f"Failed to load {group} because the class name was not stored!"
                 loguru.logger.error(msg)
@@ -178,7 +177,7 @@ class ExportableClassMixin(metaclass=ABCMeta):
                 loguru.logger.error(msg)
                 raise H5StoreException(msg)
 
-            for entry_name in base:  # type: ignore
+            for entry_name in base:
                 # The class constructor should have already been read
                 if entry_name == self.__class__.__name__:
                     continue
@@ -192,7 +191,7 @@ class ExportableClassMixin(metaclass=ABCMeta):
                 key_name = f"{binding_name}.{entry_name}"
                 if entry_type == H5StoreTypes.FunctionCache:
                     key_name = make_cache_name(key_name)
-                self.__dict__[key_name] = entry_value
+                self.__dict__[key_name] = entry_value  # pyright: ignore[reportIndexIssue]
         self._initialized_from_file = True
 
     @staticmethod
@@ -375,9 +374,10 @@ class ExportableClassMixin(metaclass=ABCMeta):
         # Add any attributes that were needed
         with h5py.File(file, mode="a", track_order=True) as hdf5_file:
             new_entry = hdf5_file[entry_name]
+            assert isinstance(new_entry, (h5py.Group, h5py.Dataset))
             for k, v in attributes.items():
                 try:
-                    write_h5_attr(new_entry, k, v)  # type: ignore
+                    write_h5_attr(new_entry, k, v)
                 except H5StoreException:
                     msg = f"Failed to write attribute {k} to group {new_entry}!"
                     loguru.logger.error(msg)
@@ -443,11 +443,11 @@ def saveable_class(
 
         for parent in reversed(inspect.getmro(cls)):
             if hasattr(parent, "_exportable_attributes"):
-                for attr in parent._exportable_attributes:  # type: ignore
+                for attr in parent._exportable_attributes:
                     _bound_class, symbol = attr.split(".")
                     attribute_names.append(symbol)
             if hasattr(parent, "_exportable_functions"):
-                for fcn in parent._exportable_functions:  # type: ignore
+                for fcn in parent._exportable_functions:
                     _bound_class, symbol = fcn.split(".")
                     function_names.append(symbol)
         attribute_names += attributes
@@ -473,7 +473,7 @@ def saveable_class(
         cls._exportable_attributes = list(set(exportable_attributes))
         cls.api_version = api_version
 
-        return cls  # type: ignore
+        return cls
 
     return decorator
 

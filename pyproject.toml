@@ -1,28 +1,32 @@
 [project]
 name = "prepper"
-authors = [
-    {name = "Varchas Gopalaswamy", email = "vgop@lle.rochester.edu"},
-]
+authors = [{ name = "Varchas Gopalaswamy", email = "varchas@gopalaswamy.org" }]
 description = "Allows python objects to be stored and loaded from an HDF5 file in a language-agnostic manner"
 readme = "README.md"
-requires-python = ">=3.11"
-license = {text = "MIT"}
-classifiers = [
-    "Programming Language :: Python :: 3",
-]
+requires-python = ">=3.14"
+license = { text = "MIT" }
+classifiers = ["Programming Language :: Python :: 3"]
 dependencies = [
     "numpy",
     "h5py >= 3.8.0",
     "loguru >= 0.6.0",
     "aenum >= 3.1.11",
     "joblib >= 1.2.0",
-    "typing_extensions >= 4.6.3",
     "lazy_loader",
 ]
 dynamic = ["version"]
 
 [project.optional-dependencies]
-CI = ["pytest", "pytest-cov","hypothesis","pylint", "xarray", "auto_uncertainties", "periodictable", "pint"]
+CI = [
+    "pytest",
+    "pytest-cov",
+    "hypothesis",
+    "pylint",
+    "xarray",
+    "auto_uncertainties",
+    "periodictable",
+    "pint",
+]
 
 [build-system]
 requires = ["setuptools >= 67.0.0", "setuptools_scm[toml]>=6.2"]
@@ -35,17 +39,27 @@ write_to = "prepper/_version.py"
 exclude = ["typings*"]
 
 [tool.pyright]
-pythonVersion = "3.11"
+pythonVersion = "3.14"
 pythonPlatform = "Linux"
 stubPath = "typings"
-typeCheckingMode = "basic"
+typeCheckingMode = "standard"
 reportUnusedImport = "none"
 reportUnusedClass = "none"
-reportUnusedFunction = "none"
-reportUnusedVariable = "none"
-reportDuplicateImport = "none"
 reportPrivateImportUsage = "none"
 reportUntypedFunctionDecorator = true
 reportUntypedClassDecorator = true
 reportMissingImports = false
-exclude = ["install*", "public*", "**/tests*", "**/resources*"]
+reportIncompatibleMethodOverride = false
+reportIncompatibleVariableOverride = false
+reportMissingModuleSource = false
+exclude = [
+    "install*",
+    "public*",
+    "**/tests*",
+    "**/resources*",
+    "**/node_modules",
+    "**/__pycache__",
+    "**/.*",
+    "**/typings",
+]
+ignore = ["**/__init__.py"]

@@ -23,9 +23,9 @@ jobs:
 
       - name: Run pre-commit checks
         run: |
-          uv pip install pre-commit
-          pre-commit install 
-          pre-commit run --all-files
+          uv pip install prek
+          prek install 
+          prek run --all-files
 
       - name: Install dependencies
         run: |
