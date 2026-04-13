@@ -1,3 +1,4 @@
+from annotationlib import Format
 from collections.abc import Callable
 import functools
 from functools import wraps
@@ -231,7 +232,7 @@ def display_formatter(func: Callable[..., Any]) -> str:
     is_in_main = func.__module__ == "__main__"
     display_name = f"{func.__module__}.{func.__qualname__}"
 
-    sig = inspect.signature(func, eval_str=True)
+    sig = inspect.signature(func, eval_str=False, annotation_format=Format.FORWARDREF)
     function_signature = str(sig).replace("(self, ", "(").replace(" ", "")
     display_name = f"{display_name}{function_signature}"
     if is_in_main:

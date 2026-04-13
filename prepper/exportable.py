@@ -1,4 +1,5 @@
 from abc import ABCMeta
+from annotationlib import Format
 from collections.abc import Callable
 import copy
 import datetime
@@ -60,7 +61,7 @@ class ExportableClassMixin(metaclass=ABCMeta):
             loguru.logger.error(f"Failed to initialize {cls.__name__}!")
             raise
 
-        sig = signature(instance.__init__, eval_str=True)
+        sig = signature(instance.__init__, annotation_format=Format.FORWARDREF)
         bound_args = sig.bind(*args, **kwargs)
         # bound_args.apply_defaults()
         for _, (key, value) in enumerate(bound_args.arguments.items()):
