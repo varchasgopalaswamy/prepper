@@ -1,7 +1,9 @@
 from annotationlib import Format
+from dataclasses import dataclass, field
 import functools
 from functools import wraps
 import inspect
+import pickle
 from typing import (
     Any,
     Concatenate,
@@ -14,8 +16,7 @@ from typing import (
 )
 lazy from collections.abc import Callable, Iterable, Iterator
 
-from joblib import hash as joblib_hash
-from numpy import ndarray
+import numpy as np
 
 __all__ = [
     "break_key",
@@ -31,47 +32,74 @@ Arguments = ParamSpec("Arguments")  # parameter specs of the decorated method
 Value = TypeVar("Value")  # return value of the decorated method
 
 
-class _HashedSeq(list[Any]):
-    """
-    This class guarantees that hash() will be called no more than once
-    per element.  This is important because the lru_cache() will hash
-    the key multiple times on a cache miss.
-    """
+def _freeze_argument(value: Any) -> tuple[Any, ...]:
+    """Snapshot arguments without delegating key equality to mutable objects."""
+    if type(value) is np.ndarray and not value.dtype.hasobject:
+        # The same immutable payload backs both equality and reconstructed arguments.
+        return (
+            "ndarray",
+            pickle.dumps(value.dtype, protocol=5),
+            value.shape,
+            value.tobytes(order="C"),
+        )
+    if isinstance(value, np.generic):
+        # HDF5 scalar loaders return Python values; retain compatibility with those keys.
+        value = value.item()
+    elif isinstance(value, np.ndarray):
+        # Pickle object elements and subclass state, never their raw object pointers.
+        value = value.copy(order="C")
+    return ("pickle", pickle.dumps(value, protocol=5))
 
-    __slots__ = ["hashvalue"]
 
-    def __init__(self, tup: Iterable[Any]) -> None:
-        hash_values = []
-        for v in tup:
-            try:
-                hash_values.append(v.item())
-            except Exception:  # noqa: BLE001 -- Arbitrary objects may reject scalar conversion.
-                hash_values.append(v)
+def _thaw_argument(value: tuple[Any, ...]) -> Any:
+    """Reconstruct a stored argument for export from its private immutable snapshot."""
+    if value[0] == "ndarray":
+        dtype = pickle.loads(value[1])  # noqa: S301 -- Snapshot produced by _freeze_argument.
+        if dtype.itemsize == 0:
+            return np.empty(value[2], dtype=dtype)
+        return np.frombuffer(value[3], dtype=dtype).reshape(value[2])
+    return pickle.loads(value[1])  # noqa: S301 -- Snapshot produced by _freeze_argument.
 
-        self[:] = hash_values
 
-        digest = joblib_hash(hash_values, hash_name="sha1")
-        if digest is None:
-            msg = "Could not hash the cache key."
-            raise TypeError(msg)
-        self.hashvalue = int(digest, 16)
+@dataclass(frozen=True, slots=True, init=False)
+class _HashedSeq:
+    """An immutable call snapshot with separate positional and ordered keyword arguments."""
+
+    _args: tuple[tuple[Any, ...], ...]
+    _kwargs: tuple[tuple[str, tuple[Any, ...]], ...]
+    hashvalue: int = field(compare=False)
+
+    def __init__(self, tup: Iterable[Any], kwds: dict[str, Any] | None = None) -> None:
+        args = tuple(_freeze_argument(value) for value in tup)
+        kwargs = tuple((name, _freeze_argument(value)) for name, value in (kwds or {}).items())
+        object.__setattr__(self, "_args", args)
+        object.__setattr__(self, "_kwargs", kwargs)
+        object.__setattr__(self, "hashvalue", hash((args, kwargs)))
 
     def __hash__(self) -> int:
         return self.hashvalue
 
+    def __reduce__(self) -> tuple[type[_HashedSeq], tuple[list[Any], dict[str, Any]]]:
+        # Recompute Python's process-dependent byte hashes when loading a pickled key.
+        return _HashedSeq, break_key(self)
+
 
 def break_key(key: Any) -> tuple[list[Any], dict[str, Any]]:
-    """Breaks a function cache key into the args and kwargs"""
-    args = []
-    kwargs = {}
-    if KWD_SENTINEL in key:
-        kwd_split_idx = key.index(KWD_SENTINEL)
-        args = key[0:kwd_split_idx]
-        assert len(key[kwd_split_idx + 1 :]) % 2 == 0
-        kwargs = dict(chunks(key[kwd_split_idx + 1 :], 2))
-    else:
-        args = key
-    return args, kwargs
+    """Return snapshotted call arguments for export, accepting legacy flat keys too."""
+    if isinstance(key, _HashedSeq):
+        return (
+            [_thaw_argument(value) for value in key._args],
+            {name: _thaw_argument(value) for name, value in key._kwargs},
+        )
+    values = list(key)
+    for index, value in enumerate(values):
+        if isinstance(value, str) and value == KWD_SENTINEL:
+            keyword_values = values[index + 1 :]
+            if len(keyword_values) % 2:
+                msg = "Malformed legacy cache key: missing a keyword argument value."
+                raise ValueError(msg)
+            return values[:index], dict(chunks(keyword_values, 2))
+    return values, {}
 
 
 def make_cache_name(name: str) -> str:
@@ -79,25 +107,8 @@ def make_cache_name(name: str) -> str:
 
 
 def _make_key(args: tuple[Any, ...], kwds: dict[str, Any]) -> _HashedSeq:
-    """
-    Make a cache key from optionally typed positional and keyword arguments
-    The key is constructed in a way that is flat as possible rather than
-    as a nested structure that would take more memory.
-    If there is only a single argument and its data type is known to cache
-    its hash value, then that argument is returned without a wrapper.  This
-    saves space and improves lookup speed.
-    """
-    # All of code below relies on kwds preserving the order input by the user.
-    # Formerly, we sorted() the kwds before looping.  The new way is *much*
-    # faster; however, it means that f(x=1, y=2) will now be treated as a
-    # distinct call from f(y=2, x=1) which will be cached separately.
-    key = args
-    if kwds:
-        key += (KWD_SENTINEL,)
-        for k, v in kwds.items():
-            v2 = tuple(v.tolist()) if isinstance(v, ndarray) else v
-            key += (k, v2)
-    return _HashedSeq(key)
+    """Build an exact cache key that preserves ndarray metadata and keyword order."""
+    return _HashedSeq(args, kwds)
 
 
 def chunks(lst: list[Any], n: int) -> Iterator[list[Any]]:
@@ -114,7 +125,7 @@ def _cache_wrapper(
     @wraps(user_function)
     def wrapper(instance: Instance, /, *args: Arguments.args, **kwds: Arguments.kwargs) -> Value:
         cache = object.__getattribute__(instance, "__dict__")
-        key = _make_key(args, dict(sorted(kwds.items())))
+        key = _make_key(args, kwds)
         fname = make_cache_name(user_function.__qualname__)
         if fname in cache:
             function_cache = cache[fname]
@@ -139,9 +150,9 @@ def _cache_wrapper(
 
 class cached_property(Generic[Instance, Value]):  # noqa: N801 -- Established decorator API.
     """
-    A property that is only computed once per instance and then replaces
-    itself with an ordinary attribute. Deleting the attribute resets the
-    property. Implementation adapted from https://github.com/pydanny/cached-property
+    A property computed once per instance, stored under its qualified name.
+    Assigning overrides the cached value, and deleting it permits recomputation.
+    Qualified names preserve separate cache entries when overrides use super().
     """
 
     __slots__ = ("__name__", "__qualname__", "__type_params__", "func")
@@ -177,6 +188,13 @@ class cached_property(Generic[Instance, Value]):  # noqa: N801 -- Established de
             e.__traceback__ = tb
             del e, tb
             raise
+
+    def __set__(self, instance: Instance, value: Value) -> None:
+        instance.__dict__[self.func.__qualname__] = value
+
+    def __delete__(self, instance: Instance) -> None:
+        # Deleting an uncached property is harmless and never evaluates the getter.
+        instance.__dict__.pop(self.func.__qualname__, None)
 
 
 class local_cache(Generic[Instance, Arguments, Value]):  # noqa: N801 -- Established decorator API.

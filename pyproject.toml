@@ -8,12 +8,18 @@ license = "MIT"
 classifiers = ["Programming Language :: Python :: 3"]
 dependencies = [
     "numpy",
+    "pydantic-settings>=2.15.0",
     "h5py >= 3.8.0",
     "loguru >= 0.6.0",
     "aenum >= 3.1.11",
-    "joblib >= 1.2.0",
 ]
 dynamic = ["version"]
+
+[project.optional-dependencies]
+xarray = ["xarray", "h5netcdf"]
+units = ["pint>=0.26.1"]
+uncertainties = ["auto_uncertainties"]
+periodictable = ["periodictable"]
 
 [dependency-groups]
 ci = [
@@ -21,6 +27,7 @@ ci = [
     "pytest-cov>=7.1.0",
     "hypothesis>=6.169.0",
     "xarray",
+    "h5netcdf",
     "auto_uncertainties",
     "periodictable",
     "pint>=0.26.1",
@@ -46,8 +53,12 @@ roots = ["prepper"]
 exclude = ["_version.py", "tests"]
 
 [tool.coverage.run]
+branch = true
 source = ["prepper"]
 omit = ["*/tests/*", "*/__init__.py", "*/_version.py"]
+
+[tool.coverage.report]
+fail_under = 80
 
 [tool.pytest.ini_options]
 testpaths = ["prepper/tests"]

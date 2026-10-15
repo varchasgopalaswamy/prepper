@@ -1,413 +1,348 @@
+"""Persist decorated Python classes and their populated caches."""
+
 from abc import ABCMeta
 from annotationlib import Format
 import copy
 import datetime as dt
 import importlib.metadata
-import inspect
-from inspect import Parameter, signature
+from inspect import signature
+import json
+import os
 from pathlib import Path
-import shutil
+import stat
 import tempfile
-import time
-import traceback
-from typing import Any, Self, TypeVar
-import uuid
-import warnings
+from typing import Any, ClassVar, Self, TypeVar
 lazy from collections.abc import Callable
 
 import h5py
-import joblib
-import loguru
-import numpy as np
 
-from prepper import H5StoreException, cached_property
+from prepper._storage import FileSource, open_hdf5
 from prepper.caching import break_key, make_cache_name
 from prepper.enums import H5StoreTypes
+from prepper.exceptions import H5StoreException
 from prepper.utils import check_equality
 
-__all__ = [
-    "ExportableClassMixin",
-    "saveable_class",
-]
+__all__ = ["ExportableClassMixin", "saveable_class"]
 
 
 class ExportableClassMixin(metaclass=ABCMeta):
-    """Allows the class to be saved and loaded from an HDF5 file"""
+    """Save constructor arguments, selected properties, and method caches in HDF5."""
 
     _constructor_args: dict[str, Any]
+    _constructor_call: tuple[tuple[Any, ...], dict[str, Any]]
     api_version: float | str
-    _exportable_attributes: list[str]
-    _exportable_functions: list[str]
-
-    def __copy__(self) -> Self:
-        return self.__class__(**self._constructor_args)
-
-    def __deepcopy__(self, memo: dict[int, Any]) -> Self:
-        args = {k: copy.deepcopy(v) for k, v in self._constructor_args.items()}
-        return self.__class__(**args)
+    _exportable_attributes: ClassVar[list[str]] = []
+    _exportable_functions: ClassVar[list[str]] = []
+    __hash__ = None
 
     def __new__(cls, *args: Any, **kwargs: Any) -> Self:
-        """
-        Intercepts the __init__ call to store the initialization arguments within the instance so that they can be saved.
-        The default arguments are not saved.
-        """
         instance = object.__new__(cls)
-        instance._constructor_args = {}
-        try:
-            instance.__init__(*args, **kwargs)
-        except Exception:
-            loguru.logger.error(f"Failed to initialize {cls.__name__}!")
-            raise
-
         sig = signature(instance.__init__, annotation_format=Format.FORWARDREF)
-        bound_args = sig.bind(*args, **kwargs)
-        # bound_args.apply_defaults()
-        for _, (key, value) in enumerate(bound_args.arguments.items()):
-            if sig.parameters[key].kind == Parameter.POSITIONAL_ONLY:
-                msg = "Cannot save arguments that are positional only!"
-                raise ValueError(msg)
-            if sig.parameters[key].kind == Parameter.VAR_KEYWORD:
-                for kwkey, kwvalue in value.items():
-                    instance._constructor_args[kwkey] = kwvalue
-                continue
-            instance._constructor_args[key] = value
-
+        bound = sig.bind(*args, **kwargs)
+        bound.apply_defaults()
+        instance._constructor_args = dict(bound.arguments)
+        instance._constructor_call = (bound.args, bound.kwargs)
+        instance._initialized_from_file = False
         return instance
-
-    def __hash__(self) -> int:
-        keys = list(self._constructor_args.keys())
-        values = list(self._constructor_args.values())
-
-        digest = joblib.hash(keys + values, hash_name="sha1")
-        if digest is None:
-            msg = "Joblib did not return a hash digest"
-            raise TypeError(msg)
-        return int.from_bytes(bytes(digest, encoding="utf-8"), "big")
-
-    def __getnewargs_ex__(self) -> tuple[tuple[()], dict[str, Any]]:
-        return (), self._constructor_args
-
-    def __eq__(self, other: object) -> bool:
-        if not isinstance(other, ExportableClassMixin) or not isinstance(self, type(other)):
-            return False
-
-        same = True
-        # Check that the constructor arguments are the same
-        for key, value in self._constructor_args.items():
-            theirs = other._constructor_args.get(key, None)
-            this_is_same = check_equality(value, theirs, log=True)
-            same &= this_is_same
-
-        # Check that attributes are the same
-        for attr in self._exportable_attributes:
-            mine = getattr(self, attr, None)
-            theirs = getattr(other, attr, None)
-            this_is_same = check_equality(mine, theirs, log=True)
-            same &= this_is_same
-
-        # Check that cached function calls are the same
-        if hasattr(self, "_exportable_functions"):
-            for symbol in self._exportable_functions:
-                # This means it's a cached property, so save it
-
-                mine = self.__dict__.get(symbol, None)
-                theirs = other.__dict__.get(symbol, None)
-                this_is_same = check_equality(mine, theirs, log=True)
-                same &= this_is_same
-        return bool(same)
 
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
-        self._initialized_from_file = False
+
+    def __copy__(self) -> Self:
+        clone = object.__new__(type(self))
+        clone.__dict__.update(self.__dict__)
+        self._copy_slots(clone)
+        return clone
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> Self:
+        clone = object.__new__(type(self))
+        memo[id(self)] = clone
+        clone.__dict__.update(copy.deepcopy(self.__dict__, memo))
+        self._copy_slots(clone, memo)
+        return clone
+
+    def _copy_slots(self, clone: Self, memo: dict[int, Any] | None = None) -> None:
+        for parent in type(self).__mro__:
+            slots = getattr(parent, "__slots__", ())
+            if isinstance(slots, str):
+                slots = (slots,)
+            for slot_name in slots:
+                name = slot_name
+                if name in {"__dict__", "__weakref__"}:
+                    continue
+                if name.startswith("__") and not name.endswith("__"):
+                    name = f"_{parent.__name__.lstrip('_')}{name}"
+                if hasattr(self, name):
+                    value = getattr(self, name)
+                    setattr(clone, name, value if memo is None else copy.deepcopy(value, memo))
+
+    def __getnewargs_ex__(self) -> tuple[tuple[Any, ...], dict[str, Any]]:
+        return self._constructor_call
+
+    def __eq__(self, other: object) -> bool:
+        if type(self) is not type(other) or not isinstance(other, ExportableClassMixin):
+            return NotImplemented
+        if not check_equality(self._constructor_args, other._constructor_args):
+            return False
+        missing = object()
+        for symbol in self._exportable_attributes:
+            if not check_equality(
+                self.__dict__.get(symbol, missing), other.__dict__.get(symbol, missing)
+            ):
+                return False
+        return all(
+            check_equality(
+                self.__dict__.get(make_cache_name(symbol), missing),
+                other.__dict__.get(make_cache_name(symbol), missing),
+            )
+            for symbol in self._exportable_functions
+        )
 
     @property
     def initialized_from_file(self) -> bool:
-        return getattr(self, "_initialized_from_file", False)
+        return self._initialized_from_file
 
     @classmethod
-    def from_hdf5(cls, path: Path, group: str = "/") -> Self:
-        path = Path(path)
-        if not Path.exists(path):
-            msg = f"Could not find file {path}"
-            raise FileNotFoundError(msg)
+    def from_hdf5(cls, path: FileSource, group: str = "/") -> Self:
+        """Validate metadata before constructing and restoring an instance."""
+        from prepper.io_handlers import read_h5_attr  # noqa: PLC0415 -- Circular dependency.
 
-        with h5py.File(path, mode="r", track_order=True) as hdf5_file:
-            if group not in hdf5_file:
-                msg = f"Failed to load {group} because it does not exist!"
-                loguru.logger.error(msg)
+        with open_hdf5(path) as handle:
+            base = cls._validated_group(handle, group)
+            stored_version = read_h5_attr(base, "api_version")
+            if str(stored_version) != str(cls.api_version):
+                msg = f"Stored API version {stored_version!r} does not match {cls.api_version!r}"
                 raise H5StoreException(msg)
-            entry = hdf5_file[group]
-            assert isinstance(entry, h5py.Group)
-            if cls.__name__ in entry:
-                init_kw_type, init_kws = ExportableClassMixin._load_h5_entry(
-                    path, f"{group}/{cls.__name__}"
-                )
-                if init_kw_type != H5StoreTypes.ClassConstructor:
-                    raise H5StoreException
+            cls._member_bindings(base)
+            constructor = f"{group.rstrip('/')}/{cls.__name__}"
+            if constructor in handle:
+                kind, data = cls._load_h5_entry(handle, constructor)
+                if kind != H5StoreTypes.ClassConstructor:
+                    msg = f"Invalid constructor entry at {constructor}"
+                    raise H5StoreException(msg)
+                if isinstance(data, tuple):
+                    args, kwargs = data
+                else:
+                    args, kwargs = (), data
             else:
-                init_kws = {}
-            instance = cls(**init_kws)
-            instance._read_hdf5_contents(path, group=group)
+                args, kwargs = (), {}
+            instance = cls(*args, **kwargs)
+            instance._read_hdf5_contents(handle, group)
         return instance
 
-    def _read_hdf5_contents(self, file: Path, group: str) -> None:
-        # Import locally because io_handlers also imports ExportableClassMixin.
-        from prepper.io_handlers import read_h5_attr  # noqa: PLC0415
+    @classmethod
+    def _validated_group(cls, handle: h5py.File, group: str) -> h5py.Group:
+        from prepper.io_handlers import get_group, read_h5_attr  # noqa: PLC0415
 
-        with h5py.File(file, mode="r", track_order=True) as hdf5_file:
-            if group not in hdf5_file:
-                msg = f"Failed to load {group} because it does not exist!"
-                loguru.logger.error(msg)
-                raise H5StoreException(msg)
+        base = get_group(handle, group)
+        if cls._get_group_type(base) != H5StoreTypes.PythonClass:
+            msg = f"HDF5 group {group!r} does not contain an exportable class"
+            raise H5StoreException(msg)
+        stored_class = read_h5_attr(base, "class")
+        if stored_class != cls.__name__:
+            msg = f"Stored class {stored_class!r} does not match {cls.__name__!r}"
+            raise H5StoreException(msg)
+        stored_module = base.attrs.get("module")
+        stored_qualname = base.attrs.get("qualname")
+        if stored_module is not None and stored_module != cls.__module__:
+            msg = f"Stored module {stored_module!r} does not match {cls.__module__!r}"
+            raise H5StoreException(msg)
+        if stored_qualname is not None and stored_qualname != cls.__qualname__:
+            msg = f"Stored qualified name {stored_qualname!r} does not match {cls.__qualname__!r}"
+            raise H5StoreException(msg)
+        return base
 
-            base = hdf5_file[group]
-            assert isinstance(base, h5py.Group)
-            entry_type = ExportableClassMixin._get_group_type(base)
-            if entry_type != H5StoreTypes.PythonClass:
-                msg = f"_read_hdf5_contents was called on a HDF5 group {group} that is not a python class spec!"
-                raise ValueError(msg)
+    @staticmethod
+    def _member_bindings(base: h5py.Group) -> dict[str, str]:
+        try:
+            bindings = json.loads(base.attrs.get("__prepper_bindings__", "{}"))
+        except (TypeError, ValueError) as exc:
+            msg = f"Invalid member bindings at {base.name}"
+            raise H5StoreException(msg) from exc
+        if not isinstance(bindings, dict) or not all(
+            isinstance(name, str) and isinstance(symbol, str) for name, symbol in bindings.items()
+        ):
+            msg = f"Invalid member bindings at {base.name}"
+            raise H5StoreException(msg)
+        return bindings
 
-            try:
-                class_name = read_h5_attr(base, "class")
-            except KeyError as exc:
-                msg = f"Failed to load {group} because the class name was not stored!"
-                loguru.logger.error(msg)
-                raise H5StoreException(msg) from exc
-            if class_name != self.__class__.__name__:
-                msg = f"Failed to load {group} because the stored class name ({class_name}) is not the same as the loading class ({self.__class__.__name__})!"
-                loguru.logger.error(msg)
-                raise H5StoreException(msg)
-
-            for entry_name in base:
-                # The class constructor should have already been read
-                if entry_name == self.__class__.__name__:
+    def _read_hdf5_contents(self, file: FileSource, group: str) -> None:
+        with open_hdf5(file) as handle:
+            base = self._validated_group(handle, group)
+            bindings = self._member_bindings(base)
+            for name in base:
+                if name == type(self).__name__:
                     continue
-
-                entry_type, entry_value = self._load_h5_entry(file, f"{group}/{entry_name}")
-                binding_name = ExportableClassMixin._get_bound_name(file, f"{group}/{entry_name}")
-                key_name = f"{binding_name}.{entry_name}"
-                if entry_type == H5StoreTypes.FunctionCache:
-                    key_name = make_cache_name(key_name)
-                self.__dict__[key_name] = entry_value  # pyright: ignore[reportIndexIssue]
+                path = f"{group.rstrip('/')}/{name}"
+                kind, value = self._load_h5_entry(handle, path)
+                if name in bindings:
+                    symbol = bindings[name]
+                else:
+                    member_name = handle[path].attrs.get("member_name", name)
+                    symbol = f"{self._get_bound_name(handle, path)}.{member_name}"
+                if kind == H5StoreTypes.FunctionCache:
+                    symbol = make_cache_name(symbol)
+                self.__dict__[symbol] = value
         self._initialized_from_file = True
 
     @staticmethod
-    def _load_h5_entry(file: Path, group: str) -> tuple[H5StoreTypes, Any]:
-        # Import locally because io_handlers also imports ExportableClassMixin.
+    def _load_h5_entry(file: FileSource, group: str) -> tuple[H5StoreTypes, Any]:
         from prepper.io_handlers import load_custom_h5_type  # noqa: PLC0415
 
-        with h5py.File(file, mode="r", track_order=True) as hdf5_file:
-            if group not in hdf5_file:
-                msg = f"Could not find {group} in the cached result!"
-                raise FileNotFoundError(msg)
-            entry = hdf5_file[group]
+        with open_hdf5(file) as handle:
+            if group not in handle:
+                msg = f"Could not find HDF5 entry {group!r}"
+                raise H5StoreException(msg)
+            kind = ExportableClassMixin._get_group_type(handle[group])
+            return kind, load_custom_h5_type(handle, group, kind)
 
-            entry_type = ExportableClassMixin._get_group_type(entry)
-
-            return entry_type, load_custom_h5_type(file, group, entry_type)
-
-    def to_hdf5(self, path: Path) -> None:
-        """Save this object to an h5 file"""
+    def to_hdf5(self, path: str | Path) -> None:
+        """Write a complete temporary file, then atomically replace the destination."""
         path = Path(path)
-
-        if not Path.exists(Path(path).parent):
-            msg = f"The parent directory for {path} does not exist!"
+        if not path.parent.is_dir():
+            msg = f"The parent directory for {path} does not exist"
             raise FileNotFoundError(msg)
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp_file = Path(temp_dir).joinpath(str(uuid.uuid1()))
-            file = h5py.File(temp_file, "w")
-            file.close()
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore", category=FutureWarning)
-                warnings.simplefilter("ignore", category=np.exceptions.VisibleDeprecationWarning)
-                self._write_hdf5_contents(Path(temp_file), group="/", existing_groups={})
-            if Path.exists(path):
-                loguru.logger.warning(f"HDF5 file {path} exists... overwriting.")
-            shutil.copyfile(src=temp_file, dst=path)
+        descriptor, temporary = tempfile.mkstemp(
+            prefix=f".{path.name}.", suffix=".tmp", dir=path.parent
+        )
+        os.close(descriptor)
+        temporary_path = Path(temporary)
+        try:
+            with open_hdf5(temporary_path, "w") as handle:
+                self._write_hdf5_contents(handle, "/", {})
+                handle.flush()
+            with temporary_path.open("rb") as stream:
+                os.fsync(stream.fileno())
+            if path.exists():
+                temporary_path.chmod(stat.S_IMODE(path.stat().st_mode))
+            temporary_path.replace(path)
+        finally:
+            temporary_path.unlink(missing_ok=True)
 
     def _write_hdf5_contents(
         self,
-        file: Path,
+        file: FileSource,
         group: str,
         existing_groups: dict[str, Any],
         attributes: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        # Import locally because io_handlers also imports ExportableClassMixin.
-        from prepper.io_handlers import dump_class_constructor, write_h5_attr  # noqa: PLC0415
-
-        start_time = time.time()
-        loguru.logger.debug(f"Writing {self.__class__.__name__} to {file} in group {group}")
+        from prepper.io_handlers import dump_class_constructor, exact_dedup, write_h5_attr  # noqa: PLC0415
 
         existing_groups[group] = self
-
-        if attributes is None:
-            attributes = {}
-        # Write this class' metadata
-        with h5py.File(file, mode="a", track_order=True) as hdf5_file:
-            my_group = hdf5_file.require_group(group)
-            code_name = self.__class__.__module__.split(".", maxsplit=1)[0]
-            attributes["module"] = self.__class__.__module__
-            attributes["class"] = self.__class__.__name__
-            attributes["timestamp"] = dt.datetime.now().astimezone().isoformat()
-            if code_name == "__main__":
-                attributes["version"] = ""
-            else:
-                attributes["version"] = importlib.metadata.version(code_name)
-            attributes["code"] = code_name
-            attributes["type"] = H5StoreTypes.PythonClass.name
-            attributes["api_version"] = self.api_version
-
-            # Write out the attributes
-            for k, v in attributes.items():
-                try:
-                    write_h5_attr(my_group, k, v)
-                except H5StoreException:
-                    msg = f"Failed to write attribute {k} to group {group}! Exception was \n {traceback.format_exc()}"
-                    loguru.logger.error(msg, exc_info=True)
-
-        # Store the class constructor arguments, if applicable
-        if len(self._constructor_args) > 0:
-            existing_groups = dump_class_constructor(file, group, self, existing_groups)
-
-        # Save the attributes, if populated
-        for symbol in self._exportable_attributes:
-            bound_class, attrname = symbol.split(".")
-            if symbol in self.__dict__:
-                existing_groups = self._dump_h5_entry(
-                    file,
-                    f"{group}/{attrname}",
-                    self.__dict__[symbol],
-                    existing_groups,
-                    attributes={"bound_class": bound_class},
-                )
-
-        for function_symbol in self._exportable_functions:
-            bound_class, fname = function_symbol.split(".")
-            cache_symbol = make_cache_name(function_symbol)
-            if cache_symbol in self.__dict__:
-                function_cache = self.__dict__[cache_symbol]
-                with h5py.File(file, mode="a", track_order=True) as hdf5_file:
-                    my_group = hdf5_file.require_group(group)
-                    function_group = my_group.require_group(fname)
-                    write_h5_attr(
-                        function_group,
-                        "type",
-                        H5StoreTypes.FunctionCache.name,
-                    )
-
-                    write_h5_attr(
-                        function_group,
-                        "bound_class",
-                        bound_class,
-                    )
-
-                    n_cache_items = max(len(function_cache), 1)
-                    pad_digits = max(int(np.log10(n_cache_items)), 0) + 1
-                    for idx, (key, value) in enumerate(function_cache.items()):
-                        pad_number = str(idx + 1).zfill(pad_digits)
-                        key_args, key_kwargs = break_key(key)
-                        call_group_name = f"{group}/{fname}/{fname}_call{pad_number}"
-                        arg_group_name = f"{call_group_name}/args"
-                        kwarg_group_name = f"{call_group_name}/kwargs"
-                        value_group_name = f"{call_group_name}/value"
-                        # Write the function call arguments
-                        existing_groups = self._dump_h5_entry(
-                            file,
-                            arg_group_name,
-                            list(key_args),
-                            existing_groups,
-                        )
-                        # Write the function call keyword arguments
-                        existing_groups = self._dump_h5_entry(
-                            file,
-                            kwarg_group_name,
-                            key_kwargs,
-                            existing_groups,
-                        )
-
-                        # Write the function call value
-                        existing_groups = self._dump_h5_entry(
-                            file,
-                            value_group_name,
-                            value,
-                            existing_groups,
-                        )
-        end_time = time.time()
-        loguru.logger.debug(
-            f"Writing {self.__class__.__name__} to {file} in group {group} took {end_time - start_time} seconds"
+        code_name = type(self).__module__.partition(".")[0]
+        try:
+            version = importlib.metadata.version(code_name)
+        except importlib.metadata.PackageNotFoundError:
+            version = ""
+        metadata = dict(attributes or {})
+        metadata.update(
+            module=type(self).__module__,
+            qualname=type(self).__qualname__,
+            **{"class": type(self).__name__},
+            timestamp=dt.datetime.now().astimezone().isoformat(),
+            version=version,
+            code=code_name,
+            type=H5StoreTypes.PythonClass.name,
+            api_version=self.api_version,
         )
+        with open_hdf5(file, "a") as handle:
+            base = handle.require_group(group)
+            symbols = set(self._exportable_attributes) | set(self._exportable_functions)
+            names: dict[str, list[str]] = {}
+            for symbol in symbols:
+                names.setdefault(symbol.rsplit(".", maxsplit=1)[-1], []).append(symbol)
+
+            def entry_name(symbol: str) -> str:
+                name = symbol.rsplit(".", maxsplit=1)[-1]
+                if name == type(self).__name__ or len(names[name]) > 1:
+                    return symbol
+                return name
+
+            bindings: dict[str, str] = {}
+            for name, value in metadata.items():
+                write_h5_attr(base, name, value)
+            with exact_dedup():
+                existing_groups = dump_class_constructor(handle, group, self, existing_groups)
+            for symbol in self._exportable_attributes:
+                if symbol in self.__dict__:
+                    disk_name = entry_name(symbol)
+                    existing_groups = self._dump_h5_entry(
+                        handle,
+                        f"{group.rstrip('/')}/{disk_name}",
+                        self.__dict__[symbol],
+                        existing_groups,
+                    )
+                    # Bindings belong to references, since values may be deduplicated links.
+                    bindings[disk_name] = symbol
+            for symbol in self._exportable_functions:
+                cache = self.__dict__.get(make_cache_name(symbol))
+                if cache is None:
+                    continue
+                bound_class, name = symbol.rsplit(".", maxsplit=1)
+                disk_name = entry_name(symbol)
+                function_path = f"{group.rstrip('/')}/{disk_name}"
+                function_group = handle.require_group(function_path)
+                write_h5_attr(function_group, "type", H5StoreTypes.FunctionCache.name)
+                write_h5_attr(function_group, "bound_class", bound_class)
+                write_h5_attr(function_group, "member_name", name)
+                bindings[disk_name] = symbol
+                width = len(str(max(len(cache), 1)))
+                for index, (key, value) in enumerate(cache.items(), start=1):
+                    args, kwargs = break_key(key)
+                    call_path = f"{function_path}/{name}_call{index:0{width}d}"
+                    for part, item in (
+                        ("args", tuple(args)),
+                        ("kwargs", kwargs),
+                        ("value", value),
+                    ):
+                        if part == "value":
+                            existing_groups = self._dump_h5_entry(
+                                handle, f"{call_path}/{part}", item, existing_groups
+                            )
+                        else:
+                            with exact_dedup():
+                                existing_groups = self._dump_h5_entry(
+                                    handle, f"{call_path}/{part}", item, existing_groups
+                                )
+            write_h5_attr(base, "__prepper_bindings__", json.dumps(bindings))
         return existing_groups
 
     @staticmethod
     def _dump_h5_entry(
-        file: Path,
+        file: FileSource,
         entry_name: str,
         value: Any,
         existing_groups: dict[str, Any],
         attributes: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        # Import locally because io_handlers also imports ExportableClassMixin.
         from prepper.io_handlers import dump_custom_h5_type, write_h5_attr  # noqa: PLC0415
 
-        entry_name = entry_name.replace("//", "/").strip()
-        if attributes is None:
-            attributes = {}
-
-        try:
-            existing_groups = dump_custom_h5_type(file, entry_name, value, existing_groups)
-        except H5StoreException as exc:
-            msg = f"Group {entry_name} is an object of type {type(value)} that does not support being saved to an HDF5 file!"
-            loguru.logger.error(msg, exc_info=True)
-            raise ValueError(msg) from exc
-
-        # Add any attributes that were needed
-        with h5py.File(file, mode="a", track_order=True) as hdf5_file:
-            new_entry = hdf5_file[entry_name]
-            assert isinstance(new_entry, (h5py.Group, h5py.Dataset))
-            for k, v in attributes.items():
-                try:
-                    write_h5_attr(new_entry, k, v)
-                except H5StoreException:
-                    msg = f"Failed to write attribute {k} to group {new_entry}!"
-                    loguru.logger.error(msg)
-
+        with open_hdf5(file, "a") as handle:
+            existing_groups = dump_custom_h5_type(handle, entry_name, value, existing_groups)
+            for name, item in (attributes or {}).items():
+                write_h5_attr(handle[entry_name], name, item)
         return existing_groups
 
     @staticmethod
     def _get_group_type(group: h5py.Group | h5py.Dataset) -> H5StoreTypes:
+        from prepper.io_handlers import read_h5_attr  # noqa: PLC0415
+
+        value = read_h5_attr(group, "type")
         try:
-            entry_type = group.attrs["type"]
-        except KeyError as exc:
-            msg = f"Failed to load {group} because the group type was not stored! Available attrs are {list(group.attrs.keys())}"
-            loguru.logger.error(msg)
-            raise H5StoreException(msg) from exc
-        try:
-            entry_type = H5StoreTypes[group.attrs["type"]]
+            return H5StoreTypes[value]
         except (KeyError, TypeError) as exc:
-            msg = (
-                f"Failed to load {group} because the group type is not in the enumeration of valid types! Valid types are "
-                + ", ".join([e.name for e in H5StoreTypes])
-            )
-            loguru.logger.error(msg)
+            msg = f"Unknown HDF5 entry type {value!r} at {group.name}"
             raise H5StoreException(msg) from exc
-        return entry_type
 
     @staticmethod
-    def _get_bound_name(file: Path, groupname: str) -> str:
-        with h5py.File(file, mode="r", track_order=True) as hdf5_file:
-            group = hdf5_file[groupname]
-            try:
-                entry_type = group.attrs["bound_class"]
-            except KeyError as exc:
-                msg = f"Failed to load {group} because the group bound_class was not stored! Available attrs are {list(group.attrs.keys())}"
-                loguru.logger.error(msg)
-                raise H5StoreException(msg) from exc
+    def _get_bound_name(file: FileSource, groupname: str) -> str:
+        from prepper.io_handlers import read_h5_attr  # noqa: PLC0415
 
-            return entry_type
+        with open_hdf5(file) as handle:
+            return read_h5_attr(handle[groupname], "bound_class")
 
 
-E = TypeVar("E")
+E = TypeVar("E", bound=ExportableClassMixin)
 
 
 def saveable_class(
@@ -415,84 +350,36 @@ def saveable_class(
     attributes: list[str] | None = None,
     functions: list[str] | None = None,
 ) -> Callable[[type[E]], type[E]]:
-    if attributes is None:
-        attributes = []
-    if functions is None:
-        functions = []
+    """Declare the cached properties and methods included in persisted state."""
 
     def decorator(cls: type[E]) -> type[E]:
         if not issubclass(cls, ExportableClassMixin):
             msg = "Only subclasses of ExportableClassMixin can be decorated with saveable_class"
             raise TypeError(msg)
-
-        attribute_names: list[str] = []
-        function_names: list[str] = []
-
-        exportable_functions: list[str] = []
-        exportable_attributes: list[str] = []
-
-        for parent in reversed(inspect.getmro(cls)):
-            if hasattr(parent, "_exportable_attributes"):
-                for attr in parent._exportable_attributes:
-                    _bound_class, symbol = attr.split(".")
-                    attribute_names.append(symbol)
-            if hasattr(parent, "_exportable_functions"):
-                for fcn in parent._exportable_functions:
-                    _bound_class, symbol = fcn.split(".")
-                    function_names.append(symbol)
-        attribute_names += attributes
-        function_names += functions
-
-        for symbol in attribute_names:
-            if not hasattr(cls, symbol):
-                msg = f"{cls} and its parents does not have property/attribute {symbol} at runtime. Dynamically added attributes are not supported."
-                raise ValueError(msg)
-            try:
-                exportable_attributes.append(getattr(cls, symbol).__qualname__)
-            except AttributeError:
-                msg = f"{cls}.{symbol} is a property. Saving properties is not supported as they dont have __dict__ entries. Make {symbol} a cached property instead."
-                raise ValueError(msg) from None
-
-        for symbol in function_names:
-            if not hasattr(cls, symbol):
-                msg = f"{cls} and its parents does not have function {symbol}"
-                raise ValueError(msg)
-            exportable_functions.append(getattr(cls, symbol).__qualname__)
-
-        cls._exportable_functions = list(set(exportable_functions))
-        cls._exportable_attributes = list(set(exportable_attributes))
+        inherited_attributes = list(getattr(cls, "_exportable_attributes", ()))
+        inherited_functions = list(getattr(cls, "_exportable_functions", ()))
+        for names, collected, description in (
+            (attributes or [], inherited_attributes, "property/attribute"),
+            (functions or [], inherited_functions, "function"),
+        ):
+            # A selected parent binding remains exportable when an override adds its own cache.
+            overridden_names = [
+                symbol.rsplit(".", maxsplit=1)[-1]
+                for symbol in collected
+                if symbol.rsplit(".", maxsplit=1)[-1] in cls.__dict__
+            ]
+            for name in [*overridden_names, *names]:
+                if not hasattr(cls, name):
+                    msg = f"{cls} and its parents does not have {description} {name}"
+                    raise ValueError(msg)
+                member = getattr(cls, name)
+                if not hasattr(member, "__qualname__"):
+                    msg = f"{cls}.{name} must be a cached property or method"
+                    raise ValueError(msg)
+                collected.append(member.__qualname__)
+        cls._exportable_attributes = list(dict.fromkeys(inherited_attributes))
+        cls._exportable_functions = list(dict.fromkeys(inherited_functions))
         cls.api_version = api_version
-
         return cls
 
     return decorator
-
-
-if __name__ == "__main__":
-
-    @saveable_class(0.1, attributes=["test_string", "test_array"])
-    class SimpleSaveableClass(ExportableClassMixin):
-        """
-        A simple saveable class, used to test saving as an attribute of another
-        saveable class
-        """
-
-        def __init__(self) -> None:
-            super().__init__()
-
-        @cached_property
-        def test_string(self) -> str:
-            return "test string SimpleSaveableClass"
-
-        @cached_property
-        def test_array(self) -> np.ndarray:
-            return np.random.random(size=(1000, 1000))  # noqa: NPY002
-
-    test_instance = SimpleSaveableClass()
-    _ = test_instance.test_array
-    _ = test_instance.test_string
-    with tempfile.NamedTemporaryFile() as tmp:
-        test_instance.to_hdf5(Path(tmp.name))
-
-        new_instanace = SimpleSaveableClass.from_hdf5(Path(tmp.name))
-        assert test_instance.test_string == new_instanace.test_string

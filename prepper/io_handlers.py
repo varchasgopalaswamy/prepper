@@ -1,20 +1,22 @@
-from collections.abc import Callable, Iterable, Sequence
-import contextlib
+from bisect import bisect_left, bisect_right, insort
+from collections.abc import Callable, Sequence
+from contextlib import contextmanager, nullcontext
+from contextvars import ContextVar
 import datetime as dt
-from enum import Enum
+from enum import Enum, Flag
 import importlib
-import numbers
-import re
-import tempfile
-import traceback
 from typing import TYPE_CHECKING, Any, TypeVar
+import uuid
+lazy from collections.abc import Generator
 lazy from pathlib import Path
 
 import h5py
 import loguru
 import numpy as np
 
+from prepper._storage import FileSource, open_hdf5
 from prepper.caching import _HashedSeq, _make_key
+from prepper.config import get_settings
 from prepper.enums import H5StoreTypes
 from prepper.exceptions import H5StoreException
 from prepper.exportable import ExportableClassMixin
@@ -81,6 +83,100 @@ HDF5_COMPRESSION = {
     "shuffle": True,
     "fletcher32": True,
 }
+_INTERNAL_HANDLERS: set[Callable[..., Any]] = set()
+_ACTIVE_LOADS: ContextVar[frozenset[tuple[str, int]]] = ContextVar(
+    "prepper_active_loads", default=frozenset()
+)
+_EXACT_DEDUP: ContextVar[bool] = ContextVar("prepper_exact_dedup", default=False)
+
+
+@contextmanager
+def exact_dedup() -> Generator[None]:
+    """Restrict deduplication to identical objects when writing exact cache keys."""
+    token = _EXACT_DEDUP.set(True)
+    try:
+        yield
+    finally:
+        _EXACT_DEDUP.reset(token)
+
+
+def _comparison_bucket(value: Any) -> tuple[Any, ...]:
+    if isinstance(value, np.ndarray):
+        return type(value), value.shape, value.dtype.str
+    if isinstance(value, (list, tuple, dict)):
+        return type(value), len(value)
+    return (type(value),)
+
+
+def _array_magnitude(value: Any) -> float | None:
+    if not isinstance(value, np.ndarray) or value.dtype.kind not in "biufc":
+        return None
+    with np.errstate(over="ignore", invalid="ignore"):
+        array = np.asarray(value, dtype=np.complex128 if value.dtype.kind == "c" else np.float64)
+        if not np.all(np.isfinite(array)):
+            return None
+        magnitude = float(np.max(np.abs(array), initial=0))
+    return magnitude if np.isfinite(magnitude) else None
+
+
+class _WriteIndex(dict[str, Any]):
+    """Keep identity lookups separate from approximate content comparisons."""
+
+    def __init__(self, values: dict[str, Any]) -> None:
+        super().__init__()
+        self.identities: dict[int, str] = {}
+        self.buckets: dict[tuple[Any, ...], list[str]] = {}
+        self.magnitudes: dict[tuple[Any, ...], list[tuple[float, str]]] = {}
+        self.other_values: dict[tuple[Any, ...], list[str]] = {}
+        self.positions: dict[str, int] = {}
+        self.active: set[int] = set()
+        for name, value in values.items():
+            self[name] = value
+
+    def __setitem__(self, name: str, value: Any) -> None:
+        super().__setitem__(name, value)
+        self.positions.setdefault(name, len(self.positions))
+        self.identities.setdefault(id(value), name)
+        bucket = _comparison_bucket(value)
+        self.buckets.setdefault(bucket, []).append(name)
+        magnitude = _array_magnitude(value)
+        if magnitude is None:
+            self.other_values.setdefault(bucket, []).append(name)
+        else:
+            insort(self.magnitudes.setdefault(bucket, []), (magnitude, name))
+
+    def candidates(self, value: Any) -> list[str]:
+        bucket = _comparison_bucket(value)
+        magnitude = _array_magnitude(value)
+        rtol = get_settings().compare_rtol
+        if magnitude is None or rtol >= 1:
+            return self.buckets.get(bucket, [])
+        if value.dtype.kind not in "fc":
+            rtol = 0
+        # Relative equality requires min(maxabs(a), maxabs(b)) >= (1-r)*max(...).
+        # Widen the interval slightly to make the index conservative at float boundaries.
+        padding = magnitude * (32 * np.finfo(np.float64).eps)
+        lower = max(0.0, magnitude * (1 - rtol) - padding)
+        upper = magnitude / (1 - rtol) + padding
+        items = self.magnitudes.get(bucket, [])
+        start = bisect_left(items, (lower, ""))
+        stop = bisect_right(items, (upper, chr(0x10FFFF)))
+        selected = {name for _, name in items[start:stop]}
+        selected.update(self.other_values.get(bucket, ()))
+        # Keep insertion order, so the first equal value remains the canonical copy.
+        return sorted(selected, key=self.positions.__getitem__)
+
+
+def _handler_source(file: FileSource, handler: Callable[..., Any]) -> FileSource:
+    if handler in _INTERNAL_HANDLERS or not isinstance(file, h5py.File):
+        return file
+    # Existing plugins open the filename themselves. Flush before handing it over.
+    file.flush()
+    return Path(file.filename)
+
+
+def _metadata(entry_type: H5StoreTypes) -> dict[str, Any]:
+    return {"type": entry_type.name, "timestamp": dt.datetime.now().astimezone().isoformat()}
 
 
 def get_hdf5_compression() -> dict[str, Any]:
@@ -93,28 +189,20 @@ def set_hdf5_compression(compression: dict[str, Any]) -> None:
 
 
 def write_h5_attr(base: h5py.Group | h5py.Dataset, name: str, value: Any) -> None:
-    if value is None:
-        base.attrs[name] = _NONE_TYPE_SENTINEL
-    else:
-        try:
+    marker = f"__prepper_none__:{name}"
+    try:
+        if value is None:
+            base.attrs[name] = _NONE_TYPE_SENTINEL
+            base.attrs[marker] = True
+        else:
             base.attrs[name] = value
-        except TypeError as exc:
-            if isinstance(value, Iterable) and all(
-                isinstance(v, PYTHON_BASIC_TYPES) for v in value
-            ):
-                try:
-                    base.attrs[name] = np.asarray(value)
-                except TypeError as exc2:
-                    msg = f"Could not write attribute {name} with type {type(value)}!"
-                    raise H5StoreException(msg) from exc2
-                except KeyError:
-                    if name in base.attrs:
-                        pass
-            msg = f"Could not write attribute {name} with type {type(value)}!"
-            raise H5StoreException(msg) from exc
-        except KeyError:
-            if name in base.attrs:
-                pass
+            if isinstance(value, str) and value == _NONE_TYPE_SENTINEL:
+                base.attrs[marker] = False
+            elif marker in base.attrs:
+                del base.attrs[marker]
+    except (TypeError, ValueError) as exc:
+        msg = f"Could not write attribute {name} with type {type(value)}!"
+        raise H5StoreException(msg) from exc
 
 
 def read_h5_attr(base: h5py.Group | h5py.Dataset, name: str) -> Any:
@@ -124,7 +212,11 @@ def read_h5_attr(base: h5py.Group | h5py.Dataset, name: str) -> Any:
         msg = f"Could not find attribute {name} in group {base.name}!"
         raise KeyError(msg) from exc
 
-    if value == _NONE_TYPE_SENTINEL:
+    if (
+        isinstance(value, str)
+        and value == _NONE_TYPE_SENTINEL
+        and base.attrs.get(f"__prepper_none__:{name}", True)
+    ):
         value = None
     return value
 
@@ -146,64 +238,81 @@ def register_writer(validator: Callable[[Any], bool]) -> Callable[[F], F]:
 
 
 def dump_custom_h5_type(
-    file: Path, group: str, value: Any, existing_groups: dict[str, Any]
+    file: FileSource, group: str, value: Any, existing_groups: dict[str, Any]
 ) -> dict[str, Any]:
-    writers = {}
-    writers.update(CUSTOM_H5_WRITERS)
-    writers.update(DEFAULT_H5_WRITERS)
-    # Check to see if this class has already been written to the file
-    class_already_written = False
-    clone_group = None
+    index = (
+        existing_groups
+        if isinstance(existing_groups, _WriteIndex)
+        else _WriteIndex(existing_groups)
+    )
+    canonical_group = "/" + "/".join(part for part in group.split("/") if part)
+    clone_group = index.identities.get(id(value))
+    ancestor = clone_group is not None and (
+        canonical_group == clone_group.rstrip("/")
+        or canonical_group.startswith(clone_group.rstrip("/") + "/")
+    )
+    if id(value) in index.active or ancestor:
+        msg = f"Cyclic object references are not supported at {group}."
+        raise H5StoreException(msg)
     if not isinstance(value, TYPES_TO_SKIP_DUPLICATE_CHECKING):
-        for k, v in existing_groups.items():
-            if isinstance(v, type(value)):
+        if clone_group is None and not _EXACT_DEDUP.get():
+            for candidate in index.candidates(value):
                 try:
-                    is_equal = check_equality(value, v)
-                except Exception:  # noqa: BLE001 - user objects and callbacks may raise arbitrary errors.
-                    is_equal = False
-                if is_equal:
-                    class_already_written = True
-                    clone_group = k  # This is the group that this class is already written to
+                    same = check_equality(value, index[candidate])
+                except Exception:  # noqa: BLE001 -- User equality methods may raise arbitrary errors.
+                    same = False
+                if same:
+                    clone_group = candidate
                     break
+        if clone_group is not None:
+            with open_hdf5(file, "a") as hdf5_file:
+                hdf5_file[group] = h5py.SoftLink(clone_group)
+            return index
 
-    if class_already_written:
-        # This class has already been written to the file, so we just need to write a reference to it
-        with h5py.File(file, mode="a", track_order=True) as hdf5_file:
-            hdf5_file[group] = h5py.SoftLink(clone_group)
-        return existing_groups
-
-    for name, (validator, writer) in writers.items():
-        try:
-            is_valid = validator(value)
-        except Exception:  # noqa: BLE001 - user objects and callbacks may raise arbitrary errors.
-            msg = f"Failed to check condition {name} for value {value} of type {type(value)}!"
-            loguru.logger.error(msg, exc_info=True)
-            is_valid = False
-        if is_valid:
-            attrs, existing_groups = writer(file, group, value, existing_groups)
-
-            with h5py.File(file, mode="a", track_order=True) as hdf5_file:
-                entry = hdf5_file[group]
-                assert isinstance(entry, (h5py.Group, h5py.Dataset))
-                for k, v in attrs.items():
-                    try:
-                        write_h5_attr(entry, k, v)
-                    except H5StoreException:
-                        msg = f"Failed to write attribute {k} to group {group}!"
-                        loguru.logger.error(msg, exc_info=True)
-
-            return existing_groups
+    index.active.add(id(value))
+    try:
+        with open_hdf5(file, "a") as hdf5_file:
+            for validator, writer in (*CUSTOM_H5_WRITERS.values(), *DEFAULT_H5_WRITERS.values()):
+                try:
+                    is_valid = validator(value)
+                except Exception:  # noqa: BLE001 -- Plugin predicates may reject arbitrary objects.
+                    is_valid = False
+                if is_valid:
+                    attrs, updated = writer(
+                        _handler_source(hdf5_file, writer), group, value, index
+                    )
+                    if updated is not index:
+                        for name, item in updated.items():
+                            if name not in index:
+                                index[name] = item
+                    entry = hdf5_file[group]
+                    for name, item in attrs.items():
+                        write_h5_attr(entry, name, item)
+                    # Every completed object is indexed, including plugin and enum values.
+                    if group not in index:
+                        index[group] = value
+                    return index
+    finally:
+        index.active.remove(id(value))
     msg = f"None of the custom HDF5 writer functions supported a value of type {type(value)}!"
     raise H5StoreException(msg)
 
 
-def load_custom_h5_type(file: Path, group: str, entry_type: H5StoreTypes) -> Any:
-    loaders = {}
-    loaders.update(CUSTOM_H5_LOADERS)
-    loaders.update(DEFAULT_H5_LOADERS)
-    for loader_type, loader in loaders.values():
-        if loader_type == entry_type:
-            return loader(file, group)
+def load_custom_h5_type(file: FileSource, group: str, entry_type: H5StoreTypes) -> Any:
+    with open_hdf5(file) as hdf5_file:
+        entry = hdf5_file[group]
+        key = str(hdf5_file.filename), hash(entry.id)
+        active = _ACTIVE_LOADS.get()
+        if key in active:
+            msg = f"Cyclic HDF5 references are not supported at {group}."
+            raise H5StoreException(msg)
+        token = _ACTIVE_LOADS.set(active | {key})
+        try:
+            for loader_type, loader in (*CUSTOM_H5_LOADERS.values(), *DEFAULT_H5_LOADERS.values()):
+                if loader_type == entry_type:
+                    return loader(_handler_source(hdf5_file, loader), group)
+        finally:
+            _ACTIVE_LOADS.reset(token)
     msg = f"No loader found for group {group} with HDF5 store type {entry_type}!"
     loguru.logger.error(msg, exc_info=True)
     raise H5StoreException(msg)
@@ -217,6 +326,7 @@ def _register(
 ) -> Callable[[F], F]:
     def decorator(func: F) -> F:
         store[func.__name__] = (validator, func)
+        _INTERNAL_HANDLERS.add(func)
         return func
 
     return decorator
@@ -245,33 +355,33 @@ def key_to_group_name(key: Any) -> str | None:
 #### NONE ####
 @_register(DEFAULT_H5_WRITERS, lambda x: x is None)
 def dump_None(
-    file: Path, group: str, value: None, existing_groups: dict[str, Any]
+    file: FileSource, group: str, value: None, existing_groups: dict[str, Any]
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    attributes: dict[str, Any] = {}
-    attributes["type"] = H5StoreTypes.Null.name
-    return attributes, existing_groups
+    with open_hdf5(file, "a") as handle:
+        handle.require_group(group)
+    return {"type": H5StoreTypes.Null.name}, existing_groups
 
 
 @_register(DEFAULT_H5_LOADERS, H5StoreTypes.Null)
-def load_None(file: Path, group: str) -> None:
+def load_None(file: FileSource, group: str) -> None:
     return None
 
 
 #### FunctionCache ####
 @_register(DEFAULT_H5_LOADERS, H5StoreTypes.FunctionCache)
-def load_hdf5_function_cache(file: Path, group: str) -> dict[_HashedSeq, Any]:
+def load_hdf5_function_cache(file: FileSource, group: str) -> dict[_HashedSeq, Any]:
     function_calls = {}
-    with h5py.File(file, mode="r", track_order=True) as hdf5_file:
+    with open_hdf5(file) as hdf5_file:
         function_group = get_group(hdf5_file, group)
         for function_call in function_group:
             arg_group_name = f"{group}/{function_call}/args"
             kwarg_group_name = f"{group}/{function_call}/kwargs"
             value_group_name = f"{group}/{function_call}/value"
-            _, args = ExportableClassMixin._load_h5_entry(file, arg_group_name)
-            _, kwargs = ExportableClassMixin._load_h5_entry(file, kwarg_group_name)
-            _, value = ExportableClassMixin._load_h5_entry(file, value_group_name)
+            _, args = ExportableClassMixin._load_h5_entry(hdf5_file, arg_group_name)
+            _, kwargs = ExportableClassMixin._load_h5_entry(hdf5_file, kwarg_group_name)
+            _, value = ExportableClassMixin._load_h5_entry(hdf5_file, value_group_name)
 
-            key = _make_key(tuple(args), dict(sorted(kwargs.items())))
+            key = _make_key(tuple(args), kwargs)
             function_calls[key] = value
     return function_calls
 
@@ -279,15 +389,15 @@ def load_hdf5_function_cache(file: Path, group: str) -> dict[_HashedSeq, Any]:
 #### HDF5 Group ######
 @_register(DEFAULT_H5_WRITERS, lambda x: isinstance(x, h5py.Group))
 def dump_hdf5_group(
-    file: Path,
+    file: FileSource,
     group: str,
     value: h5py.Group,
     existing_groups: dict[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     attributes: dict[str, Any] = {}
-    with h5py.File(file, mode="a", track_order=True) as hdf5_file:
+    with open_hdf5(file, "a") as hdf5_file:
         new_entry = hdf5_file.require_group(group)
-        value.copy(source="/", dest=new_entry, name="value")
+        value.copy(source=value, dest=new_entry, name="value")
         attributes["type"] = H5StoreTypes.HDF5Group.name
         attributes["timestamp"] = dt.datetime.now().astimezone().isoformat()
 
@@ -296,21 +406,22 @@ def dump_hdf5_group(
 
 
 @_register(DEFAULT_H5_LOADERS, H5StoreTypes.HDF5Group)
-def load_hdf5_group(file: Path, group: str) -> h5py.Group | h5py.Dataset:
-    with (
-        tempfile.TemporaryFile() as tf,
-        h5py.File(file, "r", track_order=True) as hdf5_file,
-    ):
-        f = h5py.File(tf, "w")
-        hdf5_file.copy(source=f"{group}/value", dest=f["/"], name="value")
-
-        return f["/value"]
+def load_hdf5_group(file: FileSource, group: str) -> h5py.Group | h5py.Dataset:
+    with open_hdf5(file) as hdf5_file:
+        # The HDF5 core driver owns its memory; no Python backing file can close early.
+        memory_file = h5py.File(str(uuid.uuid4()), "w", driver="core", backing_store=False)
+        try:
+            hdf5_file.copy(source=f"{group}/value", dest=memory_file["/"], name="value")
+            return memory_file["/value"]
+        except BaseException:
+            memory_file.close()
+            raise
 
 
 #### python class ####
 @_register(DEFAULT_H5_WRITERS, lambda x: issubclass(type(x), ExportableClassMixin))
 def dump_exportable_class(
-    file: Path,
+    file: FileSource,
     group: str,
     value: ExportableClassMixin,
     existing_groups: dict[str, Any],
@@ -325,8 +436,8 @@ def dump_exportable_class(
 
 
 @_register(DEFAULT_H5_LOADERS, H5StoreTypes.PythonClass)
-def load_exportable_class(file: Path, group: str) -> ExportableClassMixin:
-    with h5py.File(file, "r", track_order=True) as hdf5_file:
+def load_exportable_class(file: FileSource, group: str) -> ExportableClassMixin:
+    with open_hdf5(file) as hdf5_file:
         entry = get_group(hdf5_file, group)
         if "module" not in entry.attrs:
             msg = f"Failed to load {group} because it was a class entry, but didnt have the class module path in the attribute list!"
@@ -337,21 +448,30 @@ def load_exportable_class(file: Path, group: str) -> ExportableClassMixin:
             msg = f"Failed to load {group} because it was a class entry, but didnt have the class name in the attribute list!"
             loguru.logger.error(msg)
             raise H5StoreException(msg)
-        class_definition = getattr(class_module, str(entry.attrs["class"]))
-        return class_definition.from_hdf5(file, group)
+        class_definition: Any = class_module
+        for component in str(entry.attrs.get("qualname", entry.attrs["class"])).split("."):
+            class_definition = getattr(class_definition, component, None)
+        if not isinstance(class_definition, type) or not issubclass(
+            class_definition, ExportableClassMixin
+        ):
+            msg = f"The class stored at {group} is not an importable ExportableClassMixin."
+            raise H5StoreException(msg)
+        return class_definition.from_hdf5(hdf5_file, group)
 
 
 #### python enum ####
 @_register(DEFAULT_H5_WRITERS, lambda x: isinstance(x, Enum))
 def dump_python_enum(
-    file: Path, group: str, value: Enum, existing_groups: dict[str, Any]
+    file: FileSource, group: str, value: Enum, existing_groups: dict[str, Any]
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     attributes: dict[str, Any] = {}
-    with h5py.File(file, mode="a", track_order=True) as hdf5_file:
+    with open_hdf5(file, "a") as hdf5_file:
         new_entry = hdf5_file.require_group(group)
-        new_entry["enum_class"] = str(value.__class__.__name__)
+        new_entry["enum_class"] = str(value.__class__.__qualname__)
         new_entry["enum_module"] = str(value.__class__.__module__)
         new_entry["enum_value"] = str(value.name)
+        if isinstance(value, Flag):
+            new_entry["enum_underlying_value"] = value.value
         attributes["type"] = H5StoreTypes.Enumerator.name
         attributes["timestamp"] = dt.datetime.now().astimezone().isoformat()
 
@@ -359,8 +479,8 @@ def dump_python_enum(
 
 
 @_register(DEFAULT_H5_LOADERS, H5StoreTypes.Enumerator)
-def load_python_enum(file: Path, group: str) -> Enum:
-    with h5py.File(file, "r", track_order=True) as hdf5_file:
+def load_python_enum(file: FileSource, group: str) -> Enum:
+    with open_hdf5(file) as hdf5_file:
         entry = get_group(hdf5_file, group)
         try:
             enum_class_ = get_dataset(entry, "enum_class")[()].decode("utf-8")
@@ -370,46 +490,73 @@ def load_python_enum(file: Path, group: str) -> Enum:
             msg = f"Failed to load {group} because it was a enum entry, but didnt have the enum name or value!"
             loguru.logger.error(msg)
             raise H5StoreException(msg) from exc
-        except Exception as exc:
-            error = traceback.format_exc()
-            msg = f"Failed to load enum from {group} because of error '{error}'!"
-            loguru.logger.error(msg)
-            raise H5StoreException(msg) from exc
         enum_module = importlib.import_module(enum_module_)
-        enum_class = getattr(enum_module, enum_class_, None)
+        enum_class: Any = enum_module
+        for component in enum_class_.split("."):
+            enum_class = getattr(enum_class, component, None)
+            if enum_class is None:
+                break
         if enum_class is None:
             msg = f"Failed to load {group} because it was a enum entry, but the enum module {enum_module_} did not have the enum class {enum_class_}!"
             loguru.logger.error(msg)
             raise H5StoreException(msg)
         try:
+            if "enum_underlying_value" in entry:
+                value = get_dataset(entry, "enum_underlying_value")[()]
+                if isinstance(value, np.generic):
+                    value = value.item()
+                return enum_class(value)
             return enum_class[enum_value_]
-        except KeyError as exc:
+        except (KeyError, ValueError) as exc:
             msg = f"Failed to load {group} because it was a enum entry, but the enum class {enum_class_} did not have the enum entry {enum_value_}!"
             loguru.logger.error(msg)
             raise H5StoreException(msg) from exc
 
 
 #### generic HDF5 dataset ####
-@_register(
-    DEFAULT_H5_WRITERS,
-    lambda x: (
-        isinstance(x, (PYTHON_BASIC_TYPES, NUMPY_NUMERIC_TYPES, np.ndarray))
-        or (
-            isinstance(x, Sequence)
-            and (not isinstance(x, dict))
-            and all(isinstance(v, ALL_VALID_DATASET_TYPES) for v in x)  # pyright: ignore[reportArgumentType]
-            and all(isinstance(v, type(x[0])) for v in x)
+def _is_native_dataset(value: Any) -> bool:
+    if isinstance(value, (*PYTHON_BASIC_TYPES, bytes, complex, np.generic, np.ndarray)):
+        return True
+    if isinstance(value, (list, tuple)):
+        return not value or (
+            type(value[0]) in {int, float, complex, bool, str}
+            and all(type(item) is type(value[0]) for item in value)
         )
-    ),
-)
+    return False
+
+
+@_register(DEFAULT_H5_WRITERS, _is_native_dataset)
 def dump_python_types_or_ndarray(
-    file: Path, group: str, value: Any, existing_groups: dict[str, Any]
+    file: FileSource, group: str, value: Any, existing_groups: dict[str, Any]
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     attributes: dict[str, Any] = {}
-    with h5py.File(file, mode="a", track_order=True) as hdf5_file:
+    with open_hdf5(file, "a") as hdf5_file:
+        if isinstance(value, bytes) and not isinstance(value, np.generic):
+            kind = "bytes"
+            data = np.frombuffer(value, dtype=np.uint8)
+        elif isinstance(value, np.ndarray):
+            kind = "ndarray"
+            data = value
+        elif isinstance(value, np.generic):
+            kind = "numpy_scalar"
+            data = value
+        else:
+            kind = type(value).__name__
+            data = value
+            if isinstance(value, (list, tuple)):
+                data = np.asarray(value)
+                if data.dtype.kind == "U":
+                    data = data.astype(h5py.string_dtype("utf-8"))
+        attributes["python_kind"] = kind
+        if isinstance(value, (np.ndarray, np.generic)):
+            attributes["numpy_dtype"] = value.dtype.str
+            if value.dtype.kind == "U":
+                data = np.asarray(value, dtype=h5py.string_dtype("utf-8"))
+            elif value.dtype.kind in "mM":
+                data = value.view(np.int64)
         try:
-            hdf5_file[group] = value
-        except TypeError as exc:
+            hdf5_file[group] = data
+        except (TypeError, ValueError) as exc:
             msg = f"Failed to store {group} because it was of type {type(value)} which is not natively supported in HDF5!"
             loguru.logger.error(msg)
             raise H5StoreException(msg) from exc
@@ -421,203 +568,220 @@ def dump_python_types_or_ndarray(
 
 
 @_register(DEFAULT_H5_LOADERS, H5StoreTypes.HDF5Dataset)
-def load_python_types_or_ndarray(file: Path, group: str) -> Any:
-    with h5py.File(file, "r", track_order=True) as hdf5_file:
+def load_python_types_or_ndarray(file: FileSource, group: str) -> Any:
+    with open_hdf5(file) as hdf5_file:
         entry = get_dataset(hdf5_file, group)
+        kind = entry.attrs.get("python_kind")
+        if kind is not None and kind not in {
+            "bytes",
+            "ndarray",
+            "numpy_scalar",
+            "list",
+            "tuple",
+            "bool",
+            "int",
+            "float",
+            "complex",
+            "str",
+        }:
+            msg = f"Unknown native value kind {kind!r} at {group}."
+            raise H5StoreException(msg)
+        if kind == "bytes":
+            return entry[()].tobytes()
+        dtype = np.dtype(entry.attrs["numpy_dtype"]) if "numpy_dtype" in entry.attrs else None
         try:
-            return entry.asstr("utf-8")[()]
+            val = (
+                entry[()] if dtype is not None and dtype.kind == "S" else entry.asstr("utf-8")[()]
+            )
         except TypeError:
             val = entry[()]
-            if isinstance(val, np.bool_):
-                val = bool(val)
-            return val
+        if kind in {"ndarray", "numpy_scalar"}:
+            assert dtype is not None
+            if dtype.kind in "mM":
+                array = np.asarray(val).view(dtype)
+            else:
+                array = np.asarray(val, dtype=entry.dtype if entry.dtype.names else dtype)
+            return array if kind == "ndarray" else array[()]
+        if kind in {"list", "tuple"}:
+            values = np.asarray(val).tolist()
+            return tuple(values) if kind == "tuple" else values
+        if kind == "bool" or (kind is None and isinstance(val, np.bool_)):
+            return bool(val)
+        if kind == "int":
+            return int(val)
+        if kind == "float":
+            return float(val)
+        if kind == "complex":
+            return complex(val)
+        return val
 
 
 #### class constructor ####
 def dump_class_constructor(
-    file: Path,
+    file: FileSource,
     group: str,
     value: ExportableClassMixin,
     existing_groups: dict[str, Any],
 ) -> dict[str, Any]:
-    with h5py.File(file, mode="a", track_order=True) as hdf5_file:
-        my_group = hdf5_file.require_group(group)
-        constructor_group = my_group.require_group(value.__class__.__name__)
-        constructor_attributes = {}
-        constructor_attributes["module"] = value.__class__.__module__
-        constructor_attributes["class"] = value.__class__.__name__
-        constructor_attributes["timestamp"] = dt.datetime.now().astimezone().isoformat()
-        constructor_attributes["type"] = H5StoreTypes.ClassConstructor.name
-        # Write out the attributes
-        for k, v in constructor_attributes.items():
-            try:
-                write_h5_attr(constructor_group, k, v)
-            except H5StoreException:
-                msg = f"Failed to write attribute {k} to group {constructor_group}! Exception was \n {traceback.format_exc()}"
-                loguru.logger.error(msg, exc_info=True)
-
-    for k, v in value._constructor_args.items():
-        existing_groups = value._dump_h5_entry(
-            file,
-            f"{group}/{value.__class__.__name__}/{k}",
-            v,
-            existing_groups=existing_groups,
+    with open_hdf5(file, "a") as handle:
+        constructor = handle.require_group(group).require_group(value.__class__.__name__)
+        attributes = _metadata(H5StoreTypes.ClassConstructor)
+        attributes.update(module=value.__class__.__module__, **{"class": value.__class__.__name__})
+        call = getattr(value, "_constructor_call", None)
+        if call is not None:
+            attributes["constructor_kind"] = "call"
+        for name, item in attributes.items():
+            write_h5_attr(constructor, name, item)
+        entries = (
+            {"__args__": call[0], "__kwargs__": call[1]}
+            if call is not None
+            else value._constructor_args
         )
+        for name, item in entries.items():
+            existing_groups = value._dump_h5_entry(
+                handle,
+                f"{constructor.name}/{name}",
+                item,
+                existing_groups=existing_groups,
+            )
     return existing_groups
 
 
 @_register(DEFAULT_H5_LOADERS, H5StoreTypes.ClassConstructor)
-def load_class_constructor(file: Path, group: str) -> dict[str, Any]:
-    kwargs = {}
-    with h5py.File(file, mode="r", track_order=True) as hdf5_file:
-        my_group = get_group(hdf5_file, group)
-        for key in my_group:
-            kwargs[key] = ExportableClassMixin._load_h5_entry(file, f"{group}/{key}")[1]
-
-    return kwargs
+def load_class_constructor(
+    file: FileSource, group: str
+) -> dict[str, Any] | tuple[tuple[Any, ...], dict[str, Any]]:
+    with open_hdf5(file) as handle:
+        entry = get_group(handle, group)
+        values = {
+            name: ExportableClassMixin._load_h5_entry(handle, f"{group}/{name}")[1]
+            for name in entry
+        }
+        kind = entry.attrs.get("constructor_kind")
+        if kind == "call":
+            if (
+                set(values) != {"__args__", "__kwargs__"}
+                or not isinstance(values["__args__"], tuple)
+                or not isinstance(values["__kwargs__"], dict)
+            ):
+                msg = f"Malformed constructor arguments at {group}."
+                raise H5StoreException(msg)
+            return values["__args__"], values["__kwargs__"]
+        if kind is not None:
+            msg = f"Unknown constructor argument kind {kind!r} at {group}."
+            raise H5StoreException(msg)
+        return values
 
 
 #### python dict ####
 @_register(DEFAULT_H5_WRITERS, lambda x: isinstance(x, dict))
 def dump_dictionary(
-    file: Path,
+    file: FileSource,
     group: str,
     value: dict[Any, Any],
     existing_groups: dict[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    attributes: dict[str, Any] = {}
-    with h5py.File(file, mode="a", track_order=True) as hdf5_file:
-        _ = hdf5_file.require_group(group)
-        n_cache_items = len(value)
-        if n_cache_items > 0:
-            pad_digits = max(int(np.log10(n_cache_items)), 0) + 1
-            for idx, (key, this_value) in enumerate(value.items()):
-                pad_number = str(idx + 1).zfill(pad_digits)
-                coerced_name = key_to_group_name(key)
-                if coerced_name is not None:
-                    group_name = f"{group}/{coerced_name}"
-                    if group_name in get_group(hdf5_file, group):
-                        group_name = f"{group}/{group}_{pad_number}"
-                else:
-                    group_name = f"{group}/{group}_{pad_number}"
-
-                if issubclass(type(this_value), ExportableClassMixin):
-                    existing_groups = this_value._write_hdf5_contents(
-                        file,
-                        f"{group_name}/value",
-                        existing_groups=existing_groups,
-                    )
-                else:
+    with open_hdf5(file, "a") as handle:
+        handle.require_group(group)
+        width = len(str(max(len(value), 1)))
+        for index, (key, item) in enumerate(value.items(), 1):
+            item_group = f"{group}/item_{index:0{width}d}"
+            for name, child in (("key", key), ("value", item)):
+                with exact_dedup() if name == "key" else nullcontext():
                     existing_groups = ExportableClassMixin._dump_h5_entry(
-                        file,
-                        f"{group_name}/value",
-                        this_value,
-                        existing_groups=existing_groups,
+                        handle, f"{item_group}/{name}", child, existing_groups=existing_groups
                     )
-
-                if issubclass(type(key), ExportableClassMixin):
-                    existing_groups = key._write_hdf5_contents(
-                        file,
-                        f"{group_name}/key",
-                        existing_groups=existing_groups,
-                    )
-                else:
-                    existing_groups = ExportableClassMixin._dump_h5_entry(
-                        file,
-                        f"{group_name}/key",
-                        key,
-                        existing_groups=existing_groups,
-                    )
-
-    attributes["type"] = H5StoreTypes.Dictionary.name
-    attributes["timestamp"] = dt.datetime.now().astimezone().isoformat()
-
     existing_groups[group] = value
-
-    return attributes, existing_groups
+    return _metadata(H5StoreTypes.Dictionary), existing_groups
 
 
 @_register(DEFAULT_H5_LOADERS, H5StoreTypes.Dictionary)
-def load_dictionary(file: Path, group: str) -> dict[Any, Any]:
-    with h5py.File(file, mode="r", track_order=True) as hdf5_file:
-        entry = get_group(hdf5_file, group)
-
-        items = list(entry)
-
-        results = {}
-
-        for item in items:
-            _, item_result = ExportableClassMixin._load_h5_entry(file, f"{group}/{item}/value")
-
-            _, item_key = ExportableClassMixin._load_h5_entry(file, f"{group}/{item}/key")
-
-            results[item_key] = item_result
-
-    return results
+def load_dictionary(file: FileSource, group: str) -> dict[Any, Any]:
+    with open_hdf5(file) as handle:
+        entry = get_group(handle, group)
+        result = {}
+        for name in entry:
+            item = get_group(entry, name)
+            if set(item) != {"key", "value"}:
+                msg = f"Malformed dictionary item at {item.name}."
+                raise H5StoreException(msg)
+            key = ExportableClassMixin._load_h5_entry(handle, f"{group}/{name}/key")[1]
+            value = ExportableClassMixin._load_h5_entry(handle, f"{group}/{name}/value")[1]
+            try:
+                if key in result:
+                    msg = f"Duplicate dictionary key at {item.name}."
+                    raise H5StoreException(msg)
+                result[key] = value
+            except TypeError as exc:
+                msg = f"Unhashable dictionary key at {item.name}."
+                raise H5StoreException(msg) from exc
+    return result
 
 
 #### python sequence ####
-@_register(DEFAULT_H5_WRITERS, lambda x: isinstance(x, Iterable))
+@_register(DEFAULT_H5_WRITERS, lambda x: isinstance(x, (list, tuple, set, frozenset)))
 def dump_generic_sequence(
-    file: Path,
+    file: FileSource,
     group: str,
-    value: Sequence[Any],
+    value: Sequence[Any] | set[Any] | frozenset[Any],
     existing_groups: dict[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    basename = group.rsplit("/", maxsplit=1)[-1]
-    attributes: dict[str, Any] = {}
-    with h5py.File(file, mode="a", track_order=True) as hdf5_file:
-        _ = hdf5_file.require_group(group)
-        n_cache_items = len(value)
-        if n_cache_items > 0:
-            pad_digits = max(int(np.log10(n_cache_items)), 0) + 1
-            for idx, this_value in enumerate(value):
-                pad_number = str(idx + 1).zfill(pad_digits)
-                group_name = f"{group}/{basename}_{pad_number}"
-                if issubclass(type(this_value), ExportableClassMixin):
-                    existing_groups = this_value._write_hdf5_contents(
-                        file, group_name, existing_groups=existing_groups
-                    )
-                else:
-                    existing_groups = ExportableClassMixin._dump_h5_entry(
-                        file,
-                        group_name,
-                        this_value,
-                        existing_groups=existing_groups,
-                    )
-
-    attributes["type"] = H5StoreTypes.Sequence.name
-    attributes["timestamp"] = dt.datetime.now().astimezone().isoformat()
+    with open_hdf5(file, "a") as handle:
+        handle.require_group(group)
+        width = len(str(max(len(value), 1)))
+        for index, item in enumerate(value, 1):
+            existing_groups = ExportableClassMixin._dump_h5_entry(
+                handle, f"{group}/item_{index:0{width}d}", item, existing_groups=existing_groups
+            )
+    attributes = _metadata(H5StoreTypes.Sequence)
+    attributes["python_kind"] = type(value).__name__
+    attributes["sequence_length"] = len(value)
     existing_groups[group] = value
-
     return attributes, existing_groups
 
 
 @_register(DEFAULT_H5_LOADERS, H5StoreTypes.Sequence)
-def load_generic_sequence(file: Path, group: str) -> list[Any]:
-    with h5py.File(file, mode="r", track_order=True) as hdf5_file:
-        entry = get_group(hdf5_file, group)
-        basename = group.rsplit("/", maxsplit=1)[-1]
-        items = list(entry)
-        malformed_entries = [k for k in items if not re.match(rf"{basename}_[0-9]+", k)]
-        if len(malformed_entries) > 0:
-            msg = f"Failed to load {group} because it was a dictionary, but contained non-item groups {','.join(malformed_entries)}!"
-            loguru.logger.error(msg)
+def load_generic_sequence(
+    file: FileSource, group: str
+) -> list[Any] | tuple[Any, ...] | set[Any] | frozenset[Any]:
+    with open_hdf5(file) as handle:
+        entry = get_group(handle, group)
+        names = list(entry)
+        kind = entry.attrs.get("python_kind")
+        if kind is not None and kind not in {"list", "tuple", "set", "frozenset"}:
+            msg = f"Unknown sequence kind {kind!r} at {group}."
             raise H5StoreException(msg)
-        results = []
-
-        for item in items:
-            _, item_result = ExportableClassMixin._load_h5_entry(file, f"{group}/{item}")
-
-            results.append(item_result)
-    return results
+        if "sequence_length" in entry.attrs:
+            length = int(entry.attrs["sequence_length"])
+            width = len(str(max(length, 1)))
+            expected = [f"item_{index:0{width}d}" for index in range(1, length + 1)]
+            if length < 0 or set(names) != set(expected):
+                msg = f"Malformed sequence entries at {group}."
+                raise H5StoreException(msg)
+            names = expected
+        elif any(not name.rpartition("_")[2].isdigit() for name in names):
+            msg = f"Malformed legacy sequence entries at {group}."
+            raise H5StoreException(msg)
+        # Legacy files used the path basename as a prefix. Soft links can change
+        # the apparent basename, so use their stored order without reinterpreting it.
+        result = [
+            ExportableClassMixin._load_h5_entry(handle, f"{group}/{name}")[1] for name in names
+        ]
+        kind = entry.attrs.get("python_kind")
+        if kind == "tuple":
+            return tuple(result)
+        if kind == "set":
+            return set(result)
+        if kind == "frozenset":
+            return frozenset(result)
+        return result
 
 
 if xr is not None:
     #### xarray ####
-    @register_writer(lambda x: isinstance(x, xr.Dataset))  # pyright: ignore[reportOptionalMemberAccess]
+    @_register(CUSTOM_H5_WRITERS, lambda x: isinstance(x, xr.Dataset))
     def dump_xarray(
-        file: Path,
+        file: FileSource,
         group: str,
         value: Dataset,
         existing_groups: dict[str, Any],
@@ -626,66 +790,102 @@ if xr is not None:
 
         compression_args = {}
         for k in value.data_vars:
-            compression_args[k] = get_hdf5_compression()
+            if value[k].ndim > 0 and value[k].size > 0 and value[k].dtype.kind in "biufc":
+                compression_args[k] = get_hdf5_compression()
 
-        value.astype(np.float32).to_netcdf(
-            file,
-            group=group,
-            format="NETCDF4",
-            mode="a",
-            engine="h5netcdf",
-            invalid_netcdf=True,
-            encoding=compression_args,
-        )
-        value.close()
+        with open_hdf5(file, "a") as handle:
+            handle.require_group(group)
+            handle.flush()
+            value.to_netcdf(
+                handle.filename,
+                group=f"{group}/value",
+                format="NETCDF4",
+                mode="a",
+                engine="h5netcdf",
+                invalid_netcdf=True,
+                encoding=compression_args,
+            )
         attributes["type"] = H5StoreTypes.XArrayDataset.name
+        attributes["xarray_group"] = "value"
         attributes["timestamp"] = dt.datetime.now().astimezone().isoformat()
         existing_groups[group] = value
 
         return attributes, existing_groups
 
-    @register_loader(H5StoreTypes.XArrayDataset)
-    def load_xarray(file: Path, group: str) -> Dataset:
-        return xr.load_dataset(file, group=group, format="NETCDF4", engine="h5netcdf")  # pyright: ignore[reportOptionalMemberAccess]
+    @_register(CUSTOM_H5_LOADERS, H5StoreTypes.XArrayDataset)
+    def load_xarray(file: FileSource, group: str) -> Dataset:
+        with open_hdf5(file) as handle:
+            entry = get_group(handle, group)
+            child = entry.attrs.get("xarray_group")
+            result = xr.load_dataset(
+                handle.filename,
+                group=f"{group}/{child}" if child else group,
+                engine="h5netcdf",
+            )
+            if not child:
+                # Old files placed serialization metadata on the Dataset itself.
+                for name in ("type", "timestamp", "bound_class"):
+                    result.attrs.pop(name, None)
+            return result
 
 
 if pt is not None:
 
-    @register_writer(
+    @_register(
+        CUSTOM_H5_WRITERS,
         lambda x: isinstance(x, pt.core.Isotope | pt.core.Element),  # pyright: ignore[reportOptionalMemberAccess]
     )
     def dump_periodictable_element(
-        file: Path,
+        file: FileSource,
         group: str,
         value: Isotope | Element,
         existing_groups: dict[str, Any],
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         attributes: dict[str, Any] = {}
-        with h5py.File(file, mode="a", track_order=True) as hdf5_file:
+        with open_hdf5(file, "a") as hdf5_file:
             new_entry = hdf5_file.require_group(group)
             new_entry["element_name"] = str(value.name)
             new_entry["element_A"] = value.mass
             new_entry["element_Z"] = value.number
+            if isinstance(value, pt.core.Isotope):
+                attributes["element_kind"] = "isotope"
+                attributes["isotope_number"] = value.isotope
+            else:
+                attributes["element_kind"] = "element"
             attributes["type"] = H5StoreTypes.PeriodicTableElement.name
             attributes["timestamp"] = dt.datetime.now().astimezone().isoformat()
 
         return attributes, existing_groups
 
-    @register_loader(H5StoreTypes.PeriodicTableElement)
-    def load_periodictable_element(file: Path, group: str) -> Isotope | Element:
-        with h5py.File(file, "r", track_order=True) as hdf5_file:
+    @_register(CUSTOM_H5_LOADERS, H5StoreTypes.PeriodicTableElement)
+    def load_periodictable_element(file: FileSource, group: str) -> Isotope | Element:
+        with open_hdf5(file) as hdf5_file:
             entry = get_group(hdf5_file, group)
+            kind = entry.attrs.get("element_kind")
+            if kind is not None:
+                try:
+                    element = pt.elements[int(get_dataset(entry, "element_Z")[()])]
+                    if kind == "element":
+                        return element
+                    if kind == "isotope":
+                        return element[int(entry.attrs["isotope_number"])]
+                except (KeyError, TypeError, ValueError) as exc:
+                    msg = f"Invalid periodic table entry at {group}."
+                    raise H5StoreException(msg) from exc
+                msg = f"Unknown periodic table value kind {kind!r} at {group}."
+                raise H5StoreException(msg)
             atomic_weight = float(get_dataset(entry, "element_A")[()])
             atomic_number = float(get_dataset(entry, "element_Z")[()])
             return get_element_from_number_and_weight(z=atomic_number, a=atomic_weight)
 
 
 #### ndarray with units/error ####
-@register_writer(
+@_register(
+    CUSTOM_H5_WRITERS,
     lambda x: (Uncertainty is not None and isinstance(x, Uncertainty)) or hasattr(x, "units"),
 )
 def dump_unit_or_error_ndarrays(
-    file: Path, group: str, value: Any, existing_groups: dict[str, Any]
+    file: FileSource, group: str, value: Any, existing_groups: dict[str, Any]
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     if hasattr(value, "units"):
         u = str(value.units)
@@ -694,26 +894,18 @@ def dump_unit_or_error_ndarrays(
         u = None
         v = value
 
-    if hasattr(v, "error"):
+    has_uncertainty = hasattr(v, "error")
+    e: Any = None
+    if has_uncertainty:
         e = v.error
         v = v.value
-    else:
-        e = np.zeros_like(v)
 
     attributes: dict[str, Any] = {}
-    with h5py.File(file, mode="a", track_order=True) as hdf5_file:
+    with open_hdf5(file, "a") as hdf5_file:
         new_entry = hdf5_file.require_group(group)
-        if np.size(v) > 1:
-            compression = get_hdf5_compression()
-            if not issubclass(v.dtype.type, numbers.Integral) and issubclass(
-                v.dtype.type, numbers.Real
-            ):
-                v = v.astype(np.float32)
-                e = e.astype(np.float32)
-        else:
-            compression = {}
+        compression = get_hdf5_compression() if np.size(v) > 1 else {}
         new_entry.create_dataset(name="value", data=v, **compression)
-        if np.any(e > 0):
+        if has_uncertainty:
             new_entry.create_dataset(name="error", data=e, **compression)
 
         if u is not None:
@@ -726,17 +918,16 @@ def dump_unit_or_error_ndarrays(
     return attributes, existing_groups
 
 
-@register_loader(H5StoreTypes.DimensionalNDArray)
-def load_unit_or_error_ndarrays(file: Path, group: str) -> Any:
-    with h5py.File(file, "r", track_order=True) as hdf5_file:
+@_register(CUSTOM_H5_LOADERS, H5StoreTypes.DimensionalNDArray)
+def load_unit_or_error_ndarrays(file: FileSource, group: str) -> Any:
+    with open_hdf5(file) as hdf5_file:
         entry = get_group(hdf5_file, group)
         v = get_dataset(entry, "value")[()]
 
         if "error" in entry:
             if Uncertainty is not None:
                 e = get_dataset(entry, "error")[()]
-                if np.any(e > 0):
-                    v = Uncertainty(v, e)
+                v = Uncertainty(v, e)
             else:
                 msg = f"Need auto_uncertainties to load uncertainty arrays from group {entry}!"
                 raise ImportError(msg)
@@ -746,7 +937,7 @@ def load_unit_or_error_ndarrays(file: Path, group: str) -> Any:
                 if ur is None:
                     msg = "The dataset had unit information, but pint is not installed!"
                     raise ValueError(msg)
-                v *= ur(unit)
+                v = ur.Quantity(v, unit)
         except KeyError:
             pass
 
@@ -756,8 +947,8 @@ def load_unit_or_error_ndarrays(file: Path, group: str) -> Any:
             sz = np.size(nominal_values(v)) if nominal_values is not None else np.size(v)
             if sz > 1:
                 raise H5StoreException
-            with contextlib.suppress(IndexError, TypeError):
-                v = v[0]
+            if np.ndim(v) > 0:
+                v = v.reshape(())
     return v
 
 
