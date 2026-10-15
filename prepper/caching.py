@@ -1,5 +1,4 @@
 from annotationlib import Format
-from collections.abc import Callable
 import functools
 from functools import wraps
 import inspect
@@ -10,8 +9,10 @@ from typing import (
     ParamSpec,
     Self,
     TypeVar,
+    cast,
     overload,
 )
+lazy from collections.abc import Callable, Iterable, Iterator
 
 from joblib import hash as joblib_hash
 from numpy import ndarray
@@ -30,36 +31,37 @@ Arguments = ParamSpec("Arguments")  # parameter specs of the decorated method
 Value = TypeVar("Value")  # return value of the decorated method
 
 
-class _HashedSeq(list):
-    """This class guarantees that hash() will be called no more than once
+class _HashedSeq(list[Any]):
+    """
+    This class guarantees that hash() will be called no more than once
     per element.  This is important because the lru_cache() will hash
     the key multiple times on a cache miss.
     """
 
     __slots__ = ["hashvalue"]
 
-    def __init__(self, tup, hash=hash):
+    def __init__(self, tup: Iterable[Any]) -> None:
         hash_values = []
         for v in tup:
             try:
                 hash_values.append(v.item())
-            except Exception:
+            except Exception:  # noqa: BLE001 -- Arbitrary objects may reject scalar conversion.
                 hash_values.append(v)
 
         self[:] = hash_values
 
-        hash = joblib_hash(hash_values, hash_name="sha1")
-        if hash is not None:
-            self.hashvalue = int(hash, 16)
-        else:
-            self.hashvalue = None
+        digest = joblib_hash(hash_values, hash_name="sha1")
+        if digest is None:
+            msg = "Could not hash the cache key."
+            raise TypeError(msg)
+        self.hashvalue = int(digest, 16)
 
-    def __hash__(self) -> int | None:
+    def __hash__(self) -> int:
         return self.hashvalue
 
 
 def break_key(key: Any) -> tuple[list[Any], dict[str, Any]]:
-    "Breaks a function cache key into the args and kwargs"
+    """Breaks a function cache key into the args and kwargs"""
     args = []
     kwargs = {}
     if KWD_SENTINEL in key:
@@ -72,12 +74,13 @@ def break_key(key: Any) -> tuple[list[Any], dict[str, Any]]:
     return args, kwargs
 
 
-def make_cache_name(name):
+def make_cache_name(name: str) -> str:
     return f"__cache_{name}__"
 
 
-def _make_key(args, kwds):
-    """Make a cache key from optionally typed positional and keyword arguments
+def _make_key(args: tuple[Any, ...], kwds: dict[str, Any]) -> _HashedSeq:
+    """
+    Make a cache key from optionally typed positional and keyword arguments
     The key is constructed in a way that is flat as possible rather than
     as a nested structure that would take more memory.
     If there is only a single argument and its data type is known to cache
@@ -97,17 +100,19 @@ def _make_key(args, kwds):
     return _HashedSeq(key)
 
 
-def chunks(lst, n):
+def chunks(lst: list[Any], n: int) -> Iterator[list[Any]]:
     """Yield successive n-sized chunks from lst."""
     for i in range(0, len(lst), n):
         yield lst[i : i + n]
 
 
-def _cache_wrapper(user_function):
+def _cache_wrapper(
+    user_function: Callable[Concatenate[Instance, Arguments], Value],
+) -> Callable[Concatenate[Instance, Arguments], Value]:
     # Constants shared by all lru cache instances:
 
     @wraps(user_function)
-    def wrapper(instance, *args, **kwds):
+    def wrapper(instance: Instance, /, *args: Arguments.args, **kwds: Arguments.kwargs) -> Value:
         cache = object.__getattribute__(instance, "__dict__")
         key = _make_key(args, dict(sorted(kwds.items())))
         fname = make_cache_name(user_function.__qualname__)
@@ -132,8 +137,9 @@ def _cache_wrapper(user_function):
     return wrapper
 
 
-class cached_property(Generic[Instance, Value]):
-    """A property that is only computed once per instance and then replaces
+class cached_property(Generic[Instance, Value]):  # noqa: N801 -- Established decorator API.
+    """
+    A property that is only computed once per instance and then replaces
     itself with an ordinary attribute. Deleting the attribute resets the
     property. Implementation adapted from https://github.com/pydanny/cached-property
     """
@@ -141,7 +147,7 @@ class cached_property(Generic[Instance, Value]):
     __slots__ = ("__name__", "__qualname__", "__type_params__", "func")
     func: Callable[[Instance], Value]
 
-    def __init__(self, func: Callable[[Instance], Value]):
+    def __init__(self, func: Callable[[Instance], Value]) -> None:
         self.__name__ = func.__name__
         self.__qualname__ = func.__qualname__
         self.__type_params__ = func.__type_params__
@@ -173,8 +179,9 @@ class cached_property(Generic[Instance, Value]):
             raise
 
 
-class local_cache(Generic[Instance, Arguments, Value]):
-    """Caches the result of a function call locally to the instance.
+class local_cache(Generic[Instance, Arguments, Value]):  # noqa: N801 -- Established decorator API.
+    """
+    Caches the result of a function call locally to the instance.
     This is different from functools.cache, which caches the function result to the class, which means that
     the cache is not invalidated even if the instance is deleted.
     The functools implementation is good for i.e. HTTPS lookups,
@@ -183,21 +190,21 @@ class local_cache(Generic[Instance, Arguments, Value]):
 
     user_func: Callable[Concatenate[Instance, Arguments], Value]
 
-    def __init__(self, wrapped_func: Callable[Concatenate[Instance, Arguments], Value]):
+    def __init__(self, wrapped_func: Callable[Concatenate[Instance, Arguments], Value]) -> None:
         self.user_func = wrapped_func
         self.display_formatter = functools.partial(display_formatter, func=wrapped_func)
 
     @overload
-    def __get__(
-        self, instance: Instance, owner: type[Instance]
-    ) -> Callable[Arguments, Value]: ...
+    def __get__(self, instance: Instance, owner: type[Instance]) -> Callable[Arguments, Value]: ...
 
     @overload
     def __get__(
         self, instance: None, owner: type[Instance]
     ) -> Callable[Concatenate[Instance, Arguments], Value]: ...
 
-    def __get__(self, instance, owner):  # pyright: ignore[reportInconsistentOverload]
+    def __get__(
+        self, instance: Instance | None, owner: type[Instance]
+    ) -> Callable[Arguments, Value] | Callable[Concatenate[Instance, Arguments], Value]:
         if instance is None:
             return self.user_func
         else:
@@ -207,15 +214,18 @@ class local_cache(Generic[Instance, Arguments, Value]):
             )
             partial_function.__repr__ = self.display_formatter
             partial_function.__str__ = self.display_formatter
-            partial_function._repr_html_ = self.display_formatter  # pyright: ignore[reportAttributeAccessIssue]
+            # Jupyter discovers this dynamically attached display hook.
+            partial_function._repr_html_ = self.display_formatter  # pyrefly: ignore[missing-attribute]
             if self.user_func.__doc__ is not None:
                 partial_function.__doc__ = self.user_func.__doc__
             else:
-                partial_function.__doc__ = f"Cached version of {self.user_func.__module__}.{self.user_func.__qualname__}"
+                partial_function.__doc__ = (
+                    f"Cached version of {self.user_func.__module__}.{self.user_func.__qualname__}"
+                )
 
-            return partial_function
+            return cast("Callable[Arguments, Value]", partial_function)
 
-    def __set__(self, obj, value):
+    def __set__(self, obj: Instance, value: tuple[_HashedSeq, Value]) -> None:
         fname = make_cache_name(self.user_func.__qualname__)
         if fname not in obj.__dict__:
             obj.__dict__[fname] = {}

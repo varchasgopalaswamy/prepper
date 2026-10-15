@@ -76,13 +76,15 @@ def test_saveable_class():
             functions=["square"],
         ),
     ]
-    pytest.raises(TypeError, decorator, NotASaveableClass)
+    with pytest.raises(TypeError):
+        decorator(NotASaveableClass)
     decorated = decorator(SimpleSaveableClass)
     assert decorated._exportable_functions == ["SimpleSaveableClass.square"]
     assert decorated._exportable_attributes == ["SimpleSaveableClass.test_string"]
 
     for d in bad_decorators:
-        pytest.raises(ValueError, d, SimpleSaveableClass)
+        with pytest.raises(ValueError, match=r"does not have (property/attribute|function)"):
+            d(SimpleSaveableClass)
 
 
 def test_cached_property():
@@ -99,8 +101,7 @@ def test_cached_property():
 
     # Make sure the cached property stores the parent and child calls
     assert (
-        test_class.__dict__["SimpleSaveableClass.test_string"]
-        == "test string SimpleSaveableClass"
+        test_class.__dict__["SimpleSaveableClass.test_string"] == "test string SimpleSaveableClass"
     )
     assert (
         test_class.__dict__["SimpleSaveableClass2.test_string"]
@@ -123,10 +124,5 @@ def test_local_cache(x):
         key = _make_key((x_,), {})
 
         # Make sure the cache is stores the parent and child calls
-        assert (
-            test_class2.__dict__["__cache_SimpleSaveableClass.square__"][key] == x_**2
-        )
-        assert (
-            test_class2.__dict__["__cache_SimpleSaveableClass2.square__"][key]
-            == 2 * x_**2
-        )
+        assert test_class2.__dict__["__cache_SimpleSaveableClass.square__"][key] == x_**2
+        assert test_class2.__dict__["__cache_SimpleSaveableClass2.square__"][key] == 2 * x_**2

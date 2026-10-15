@@ -1,5 +1,5 @@
 import inspect
-import os
+from pathlib import Path
 import tempfile
 
 import h5py
@@ -39,7 +39,7 @@ def roundtrip(obj: ExportableClassMixin, should_not_be_saved=None):
     if should_not_be_saved is None:
         should_not_be_saved = []
     with tempfile.TemporaryDirectory() as tmpdir:
-        filename = os.path.join(tmpdir, "test.hdf5")
+        filename = Path(tmpdir) / "test.hdf5"
         obj.to_hdf5(filename)
 
         with h5py.File(filename, "r") as hdf5_file:
@@ -205,4 +205,4 @@ def ensure_required_attributes(var, group):
         req_attrs = req_dataset_attrs
 
     for attr in req_attrs:
-        assert attr in group.attrs.keys()
+        assert attr in group.attrs

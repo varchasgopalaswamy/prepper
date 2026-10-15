@@ -20,16 +20,13 @@ __all__ = ["check_equality", "get_element_from_number_and_weight"]
 
 
 def check_equality(value1: Any, value2: Any, *, log: bool = False) -> bool:
-    """
-    Check if two objects are equal
-    """
-
+    """Check if two objects are equal"""
     # Need a special check for xarray Datasets...
     if xr is not None:
-        # If both are xarray datasets, check to see if they are the same
-        for xr_type in [xr.Dataset, xr.DataArray]:
-            if isinstance(value1, xr_type) and isinstance(value2, xr_type):
-                return value1.identical(value2)
+        if isinstance(value1, xr.Dataset) and isinstance(value2, xr.Dataset):
+            return value1.identical(value2)
+        if isinstance(value1, xr.DataArray) and isinstance(value2, xr.DataArray):
+            return value1.identical(value2)
 
     # Just try to do a comparison
     try:
@@ -41,7 +38,7 @@ def check_equality(value1: Any, value2: Any, *, log: bool = False) -> bool:
         if not same and log:
             loguru.logger.debug(f"Values are different: {value1} and {value2}")
 
-    except Exception:
+    except Exception:  # noqa: BLE001 -- Equality implementations can raise arbitrary exceptions.
         # Maybe it's a numpy array
         # check if the dimensions are compatible
         try:
@@ -60,12 +57,10 @@ def check_equality(value1: Any, value2: Any, *, log: bool = False) -> bool:
             # do a numpy comparison
             try:
                 same = np.allclose(value1, value2)
-            except Exception:
+            except Exception:  # noqa: BLE001 -- Fall back for arbitrary array-like objects.
                 same = all(value1 == value2)
             if not same and log:
-                loguru.logger.debug(
-                    f"Numpy check: values are different: {value1} and {value2}"
-                )
+                loguru.logger.debug(f"Numpy check: values are different: {value1} and {value2}")
         except Exception as e:
             if isinstance(value1, type(value2)):
                 msg = f"Cannot compare {value1} and {value2} of type {type(value1)} and {type(value2)}"
@@ -89,7 +84,6 @@ def get_element_from_number_and_weight(z: float, a: float) -> Isotope | Element:
     and another float value 'a' representing the atomic mass, and returns
     an object of type ElementType.
     """
-
     # Initialize variables
     elm = None
     mindist = np.inf

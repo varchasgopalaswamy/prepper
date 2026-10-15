@@ -1,6 +1,5 @@
 from abc import ABCMeta
 from annotationlib import Format
-from collections.abc import Callable
 import copy
 import datetime
 import importlib.metadata
@@ -11,9 +10,10 @@ import shutil
 import tempfile
 import time
 import traceback
-from typing import Any, TypeVar
+from typing import Any, Self, TypeVar
 import uuid
 import warnings
+lazy from collections.abc import Callable
 
 import h5py
 import joblib
@@ -32,25 +32,23 @@ __all__ = [
 
 
 class ExportableClassMixin(metaclass=ABCMeta):
-    """
-    Allows the class to be saved and loaded from an HDF5 file
-
-    """
+    """Allows the class to be saved and loaded from an HDF5 file"""
 
     _constructor_args: dict[str, Any]
-    api_version: float
+    api_version: float | str
     _exportable_attributes: list[str]
     _exportable_functions: list[str]
 
-    def __copy__(self):
+    def __copy__(self) -> Self:
         return self.__class__(**self._constructor_args)
 
-    def __deepcopy__(self, memo):
+    def __deepcopy__(self, memo: dict[int, Any]) -> Self:
         args = {k: copy.deepcopy(v) for k, v in self._constructor_args.items()}
         return self.__class__(**args)
 
-    def __new__(cls, *args, **kwargs):
-        """Intercepts the __init__ call to store the initialization arguments within the instance so that they can be saved.
+    def __new__(cls, *args: Any, **kwargs: Any) -> Self:
+        """
+        Intercepts the __init__ call to store the initialization arguments within the instance so that they can be saved.
         The default arguments are not saved.
         """
         instance = object.__new__(cls)
@@ -76,20 +74,21 @@ class ExportableClassMixin(metaclass=ABCMeta):
 
         return instance
 
-    def __hash__(self):
+    def __hash__(self) -> int:
         keys = list(self._constructor_args.keys())
         values = list(self._constructor_args.values())
 
         digest = joblib.hash(keys + values, hash_name="sha1")
         if digest is None:
-            return None
+            msg = "Joblib did not return a hash digest"
+            raise TypeError(msg)
         return int.from_bytes(bytes(digest, encoding="utf-8"), "big")
 
-    def __getnewargs_ex__(self):
+    def __getnewargs_ex__(self) -> tuple[tuple[()], dict[str, Any]]:
         return (), self._constructor_args
 
-    def __eq__(self, other) -> bool:
-        if not isinstance(self, type(other)):
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, ExportableClassMixin) or not isinstance(self, type(other)):
             return False
 
         same = True
@@ -117,16 +116,16 @@ class ExportableClassMixin(metaclass=ABCMeta):
                 same &= this_is_same
         return bool(same)
 
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._initialized_from_file = False
 
     @property
-    def initialized_from_file(self):
+    def initialized_from_file(self) -> bool:
         return getattr(self, "_initialized_from_file", False)
 
     @classmethod
-    def from_hdf5(cls, path: Path, group="/"):
+    def from_hdf5(cls, path: Path, group: str = "/") -> Self:
         path = Path(path)
         if not Path.exists(path):
             msg = f"Could not find file {path}"
@@ -151,8 +150,9 @@ class ExportableClassMixin(metaclass=ABCMeta):
             instance._read_hdf5_contents(path, group=group)
         return instance
 
-    def _read_hdf5_contents(self, file, group):
-        from prepper.io_handlers import read_h5_attr
+    def _read_hdf5_contents(self, file: Path, group: str) -> None:
+        # Import locally because io_handlers also imports ExportableClassMixin.
+        from prepper.io_handlers import read_h5_attr  # noqa: PLC0415
 
         with h5py.File(file, mode="r", track_order=True) as hdf5_file:
             if group not in hdf5_file:
@@ -183,12 +183,8 @@ class ExportableClassMixin(metaclass=ABCMeta):
                 if entry_name == self.__class__.__name__:
                     continue
 
-                entry_type, entry_value = self._load_h5_entry(
-                    file, f"{group}/{entry_name}"
-                )
-                binding_name = ExportableClassMixin._get_bound_name(
-                    file, f"{group}/{entry_name}"
-                )
+                entry_type, entry_value = self._load_h5_entry(file, f"{group}/{entry_name}")
+                binding_name = ExportableClassMixin._get_bound_name(file, f"{group}/{entry_name}")
                 key_name = f"{binding_name}.{entry_name}"
                 if entry_type == H5StoreTypes.FunctionCache:
                     key_name = make_cache_name(key_name)
@@ -197,7 +193,8 @@ class ExportableClassMixin(metaclass=ABCMeta):
 
     @staticmethod
     def _load_h5_entry(file: Path, group: str) -> tuple[H5StoreTypes, Any]:
-        from prepper.io_handlers import load_custom_h5_type
+        # Import locally because io_handlers also imports ExportableClassMixin.
+        from prepper.io_handlers import load_custom_h5_type  # noqa: PLC0415
 
         with h5py.File(file, mode="r", track_order=True) as hdf5_file:
             if group not in hdf5_file:
@@ -209,10 +206,8 @@ class ExportableClassMixin(metaclass=ABCMeta):
 
             return entry_type, load_custom_h5_type(file, group, entry_type)
 
-    def to_hdf5(self, path: Path):
-        """
-        Save this object to an h5 file
-        """
+    def to_hdf5(self, path: Path) -> None:
+        """Save this object to an h5 file"""
         path = Path(path)
 
         if not Path.exists(Path(path).parent):
@@ -225,12 +220,8 @@ class ExportableClassMixin(metaclass=ABCMeta):
             file.close()
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", category=FutureWarning)
-                warnings.simplefilter(
-                    "ignore", category=np.exceptions.VisibleDeprecationWarning
-                )
-                self._write_hdf5_contents(
-                    Path(temp_file), group="/", existing_groups={}
-                )
+                warnings.simplefilter("ignore", category=np.exceptions.VisibleDeprecationWarning)
+                self._write_hdf5_contents(Path(temp_file), group="/", existing_groups={})
             if Path.exists(path):
                 loguru.logger.warning(f"HDF5 file {path} exists... overwriting.")
             shutil.copyfile(src=temp_file, dst=path)
@@ -240,14 +231,13 @@ class ExportableClassMixin(metaclass=ABCMeta):
         file: Path,
         group: str,
         existing_groups: dict[str, Any],
-        attributes=None,
-    ):
-        from prepper.io_handlers import dump_class_constructor, write_h5_attr
+        attributes: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        # Import locally because io_handlers also imports ExportableClassMixin.
+        from prepper.io_handlers import dump_class_constructor, write_h5_attr  # noqa: PLC0415
 
         start_time = time.time()
-        loguru.logger.debug(
-            f"Writing {self.__class__.__name__} to {file} in group {group}"
-        )
+        loguru.logger.debug(f"Writing {self.__class__.__name__} to {file} in group {group}")
 
         existing_groups[group] = self
 
@@ -259,7 +249,7 @@ class ExportableClassMixin(metaclass=ABCMeta):
             code_name = self.__class__.__module__.split(".", maxsplit=1)[0]
             attributes["module"] = self.__class__.__module__
             attributes["class"] = self.__class__.__name__
-            attributes["timestamp"] = datetime.datetime.now().isoformat()
+            attributes["timestamp"] = datetime.datetime.now().astimezone().isoformat()
             if code_name == "__main__":
                 attributes["version"] = ""
             else:
@@ -356,17 +346,16 @@ class ExportableClassMixin(metaclass=ABCMeta):
         value: Any,
         existing_groups: dict[str, Any],
         attributes: dict[str, Any] | None = None,
-    ):
-        from prepper.io_handlers import dump_custom_h5_type, write_h5_attr
+    ) -> dict[str, Any]:
+        # Import locally because io_handlers also imports ExportableClassMixin.
+        from prepper.io_handlers import dump_custom_h5_type, write_h5_attr  # noqa: PLC0415
 
         entry_name = entry_name.replace("//", "/").strip()
         if attributes is None:
             attributes = {}
 
         try:
-            existing_groups = dump_custom_h5_type(
-                file, entry_name, value, existing_groups
-            )
+            existing_groups = dump_custom_h5_type(file, entry_name, value, existing_groups)
         except H5StoreException as exc:
             msg = f"Group {entry_name} is an object of type {type(value)} that does not support being saved to an HDF5 file!"
             loguru.logger.error(msg, exc_info=True)
@@ -386,7 +375,7 @@ class ExportableClassMixin(metaclass=ABCMeta):
         return existing_groups
 
     @staticmethod
-    def _get_group_type(group):
+    def _get_group_type(group: h5py.Group | h5py.Dataset) -> H5StoreTypes:
         try:
             entry_type = group.attrs["type"]
         except KeyError as exc:
@@ -405,7 +394,7 @@ class ExportableClassMixin(metaclass=ABCMeta):
         return entry_type
 
     @staticmethod
-    def _get_bound_name(file, groupname):
+    def _get_bound_name(file: Path, groupname: str) -> str:
         with h5py.File(file, mode="r", track_order=True) as hdf5_file:
             group = hdf5_file[groupname]
             try:
@@ -422,7 +411,7 @@ E = TypeVar("E")
 
 
 def saveable_class(
-    api_version: float,
+    api_version: float | str,
     attributes: list[str] | None = None,
     functions: list[str] | None = None,
 ) -> Callable[[type[E]], type[E]]:
@@ -488,15 +477,15 @@ if __name__ == "__main__":
         saveable class
         """
 
-        def __init__(self):
+        def __init__(self) -> None:
             super().__init__()
 
         @cached_property
-        def test_string(self):
+        def test_string(self) -> str:
             return "test string SimpleSaveableClass"
 
         @cached_property
-        def test_array(self):
+        def test_array(self) -> np.ndarray:
             return np.random.random(size=(1000, 1000))  # noqa: NPY002
 
     test_instance = SimpleSaveableClass()

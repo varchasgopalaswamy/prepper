@@ -1,14 +1,14 @@
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 import contextlib
 import datetime
 from enum import Enum
 import importlib
 import numbers
-from pathlib import Path
 import re
 import tempfile
 import traceback
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeVar
+lazy from pathlib import Path
 
 import h5py
 import loguru
@@ -44,7 +44,6 @@ except ImportError:
     ur = None
 
 if TYPE_CHECKING:
-    from auto_uncertainties import Uncertainty
     from periodictable.core import Element, Isotope
     from xarray import Dataset
 
@@ -70,10 +69,12 @@ TYPES_TO_SKIP_DUPLICATE_CHECKING = (*PYTHON_BASIC_TYPES, bool)
 NUMPY_NUMERIC_TYPES = (np.int32, np.int64, np.float32, np.float64)
 
 ALL_VALID_DATASET_TYPES = PYTHON_BASIC_TYPES + NUMPY_NUMERIC_TYPES
-DEFAULT_H5_WRITERS = {}
-DEFAULT_H5_LOADERS = {}
-CUSTOM_H5_WRITERS = {}
-CUSTOM_H5_LOADERS = {}
+F = TypeVar("F", bound=Callable[..., Any])
+
+DEFAULT_H5_WRITERS: dict[str, tuple[Any, Callable[..., Any]]] = {}
+DEFAULT_H5_LOADERS: dict[str, tuple[Any, Callable[..., Any]]] = {}
+CUSTOM_H5_WRITERS: dict[str, tuple[Any, Callable[..., Any]]] = {}
+CUSTOM_H5_LOADERS: dict[str, tuple[Any, Callable[..., Any]]] = {}
 HDF5_COMPRESSION = {
     "compression": "gzip",
     "compression_opts": 9,
@@ -82,16 +83,16 @@ HDF5_COMPRESSION = {
 }
 
 
-def get_hdf5_compression():
+def get_hdf5_compression() -> dict[str, Any]:
     return HDF5_COMPRESSION
 
 
-def set_hdf5_compression(compression: dict[str, Any]):
-    global HDF5_COMPRESSION
+def set_hdf5_compression(compression: dict[str, Any]) -> None:
+    global HDF5_COMPRESSION  # noqa: PLW0603 - the setter replaces the shared configuration.
     HDF5_COMPRESSION = compression
 
 
-def write_h5_attr(base: h5py.Group | h5py.Dataset, name: str, value: Any):
+def write_h5_attr(base: h5py.Group | h5py.Dataset, name: str, value: Any) -> None:
     if value is None:
         base.attrs[name] = _NONE_TYPE_SENTINEL
     else:
@@ -116,7 +117,7 @@ def write_h5_attr(base: h5py.Group | h5py.Dataset, name: str, value: Any):
                 pass
 
 
-def read_h5_attr(base: h5py.Group, name: str):
+def read_h5_attr(base: h5py.Group | h5py.Dataset, name: str) -> Any:
     try:
         value = base.attrs[name]
     except KeyError as exc:
@@ -128,16 +129,16 @@ def read_h5_attr(base: h5py.Group, name: str):
     return value
 
 
-def register_loader(validator):
-    def decorator(func):
+def register_loader(validator: H5StoreTypes) -> Callable[[F], F]:
+    def decorator(func: F) -> F:
         CUSTOM_H5_LOADERS[func.__name__] = (validator, func)
         return func
 
     return decorator
 
 
-def register_writer(validator):
-    def decorator(func):
+def register_writer(validator: Callable[[Any], bool]) -> Callable[[F], F]:
+    def decorator(func: F) -> F:
         CUSTOM_H5_WRITERS[func.__name__] = (validator, func)
         return func
 
@@ -146,7 +147,7 @@ def register_writer(validator):
 
 def dump_custom_h5_type(
     file: Path, group: str, value: Any, existing_groups: dict[str, Any]
-):
+) -> dict[str, Any]:
     writers = {}
     writers.update(CUSTOM_H5_WRITERS)
     writers.update(DEFAULT_H5_WRITERS)
@@ -158,13 +159,11 @@ def dump_custom_h5_type(
             if isinstance(v, type(value)):
                 try:
                     is_equal = check_equality(value, v)
-                except Exception:
+                except Exception:  # noqa: BLE001 - user objects and callbacks may raise arbitrary errors.
                     is_equal = False
                 if is_equal:
                     class_already_written = True
-                    clone_group = (
-                        k  # This is the group that this class is already written to
-                    )
+                    clone_group = k  # This is the group that this class is already written to
                     break
 
     if class_already_written:
@@ -176,7 +175,7 @@ def dump_custom_h5_type(
     for name, (validator, writer) in writers.items():
         try:
             is_valid = validator(value)
-        except Exception:
+        except Exception:  # noqa: BLE001 - user objects and callbacks may raise arbitrary errors.
             msg = f"Failed to check condition {name} for value {value} of type {type(value)}!"
             loguru.logger.error(msg, exc_info=True)
             is_valid = False
@@ -213,15 +212,17 @@ def load_custom_h5_type(file: Path, group: str, entry_type: H5StoreTypes) -> Any
 #### Internal functions below here
 
 
-def _register(store, validator):
-    def decorator(func):
+def _register(
+    store: dict[str, tuple[Any, Callable[..., Any]]], validator: Any
+) -> Callable[[F], F]:
+    def decorator(func: F) -> F:
         store[func.__name__] = (validator, func)
         return func
 
     return decorator
 
 
-def key_to_group_name(key):
+def key_to_group_name(key: Any) -> str | None:
     if isinstance(key, Enum):
         name = key.name
 
@@ -232,7 +233,7 @@ def key_to_group_name(key):
 
     try:
         name = str(key)
-    except Exception:
+    except Exception:  # noqa: BLE001 - user objects and callbacks may raise arbitrary errors.
         return None
 
     if "/" in name:
@@ -246,13 +247,13 @@ def key_to_group_name(key):
 def dump_None(
     file: Path, group: str, value: None, existing_groups: dict[str, Any]
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    attributes = {}
+    attributes: dict[str, Any] = {}
     attributes["type"] = H5StoreTypes.Null.name
     return attributes, existing_groups
 
 
 @_register(DEFAULT_H5_LOADERS, H5StoreTypes.Null)
-def load_None(file: Path, group: str):
+def load_None(file: Path, group: str) -> None:
     return None
 
 
@@ -283,19 +284,19 @@ def dump_hdf5_group(
     value: h5py.Group,
     existing_groups: dict[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    attributes = {}
+    attributes: dict[str, Any] = {}
     with h5py.File(file, mode="a", track_order=True) as hdf5_file:
         new_entry = hdf5_file.require_group(group)
         value.copy(source="/", dest=new_entry, name="value")
         attributes["type"] = H5StoreTypes.HDF5Group.name
-        attributes["timestamp"] = datetime.datetime.now().isoformat()
+        attributes["timestamp"] = datetime.datetime.now().astimezone().isoformat()
 
     existing_groups[group] = value
     return attributes, existing_groups
 
 
 @_register(DEFAULT_H5_LOADERS, H5StoreTypes.HDF5Group)
-def load_hdf5_group(file: Path, group: str):
+def load_hdf5_group(file: Path, group: str) -> h5py.Group | h5py.Dataset:
     with (
         tempfile.TemporaryFile() as tf,
         h5py.File(file, "r", track_order=True) as hdf5_file,
@@ -314,7 +315,7 @@ def dump_exportable_class(
     value: ExportableClassMixin,
     existing_groups: dict[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    attributes = {}
+    attributes: dict[str, Any] = {}
     existing_groups = value._write_hdf5_contents(
         file=file,
         group=group,
@@ -343,22 +344,22 @@ def load_exportable_class(file: Path, group: str) -> ExportableClassMixin:
 #### python enum ####
 @_register(DEFAULT_H5_WRITERS, lambda x: isinstance(x, Enum))
 def dump_python_enum(
-    file: Path, group: str, value: type[Enum], existing_groups: dict[str, Any]
+    file: Path, group: str, value: Enum, existing_groups: dict[str, Any]
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    attributes = {}
+    attributes: dict[str, Any] = {}
     with h5py.File(file, mode="a", track_order=True) as hdf5_file:
         new_entry = hdf5_file.require_group(group)
         new_entry["enum_class"] = str(value.__class__.__name__)
         new_entry["enum_module"] = str(value.__class__.__module__)
         new_entry["enum_value"] = str(value.name)
         attributes["type"] = H5StoreTypes.Enumerator.name
-        attributes["timestamp"] = datetime.datetime.now().isoformat()
+        attributes["timestamp"] = datetime.datetime.now().astimezone().isoformat()
 
     return attributes, existing_groups
 
 
 @_register(DEFAULT_H5_LOADERS, H5StoreTypes.Enumerator)
-def load_python_enum(file: Path, group: str) -> type[Enum]:
+def load_python_enum(file: Path, group: str) -> Enum:
     with h5py.File(file, "r", track_order=True) as hdf5_file:
         entry = get_group(hdf5_file, group)
         try:
@@ -404,7 +405,7 @@ def load_python_enum(file: Path, group: str) -> type[Enum]:
 def dump_python_types_or_ndarray(
     file: Path, group: str, value: Any, existing_groups: dict[str, Any]
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    attributes = {}
+    attributes: dict[str, Any] = {}
     with h5py.File(file, mode="a", track_order=True) as hdf5_file:
         try:
             hdf5_file[group] = value
@@ -413,14 +414,14 @@ def dump_python_types_or_ndarray(
             loguru.logger.error(msg)
             raise H5StoreException(msg) from exc
         attributes["type"] = H5StoreTypes.HDF5Dataset.name
-        attributes["timestamp"] = datetime.datetime.now().isoformat()
+        attributes["timestamp"] = datetime.datetime.now().astimezone().isoformat()
     existing_groups[group] = value
 
     return attributes, existing_groups
 
 
 @_register(DEFAULT_H5_LOADERS, H5StoreTypes.HDF5Dataset)
-def load_python_types_or_ndarray(file: Path, group: str):
+def load_python_types_or_ndarray(file: Path, group: str) -> Any:
     with h5py.File(file, "r", track_order=True) as hdf5_file:
         entry = get_dataset(hdf5_file, group)
         try:
@@ -445,7 +446,7 @@ def dump_class_constructor(
         constructor_attributes = {}
         constructor_attributes["module"] = value.__class__.__module__
         constructor_attributes["class"] = value.__class__.__name__
-        constructor_attributes["timestamp"] = datetime.datetime.now().isoformat()
+        constructor_attributes["timestamp"] = datetime.datetime.now().astimezone().isoformat()
         constructor_attributes["type"] = H5StoreTypes.ClassConstructor.name
         # Write out the attributes
         for k, v in constructor_attributes.items():
@@ -466,7 +467,7 @@ def dump_class_constructor(
 
 
 @_register(DEFAULT_H5_LOADERS, H5StoreTypes.ClassConstructor)
-def load_class_constructor(file: Path, group: str):
+def load_class_constructor(file: Path, group: str) -> dict[str, Any]:
     kwargs = {}
     with h5py.File(file, mode="r", track_order=True) as hdf5_file:
         my_group = get_group(hdf5_file, group)
@@ -484,7 +485,7 @@ def dump_dictionary(
     value: dict[Any, Any],
     existing_groups: dict[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    attributes = {}
+    attributes: dict[str, Any] = {}
     with h5py.File(file, mode="a", track_order=True) as hdf5_file:
         _ = hdf5_file.require_group(group)
         n_cache_items = len(value)
@@ -529,7 +530,7 @@ def dump_dictionary(
                     )
 
     attributes["type"] = H5StoreTypes.Dictionary.name
-    attributes["timestamp"] = datetime.datetime.now().isoformat()
+    attributes["timestamp"] = datetime.datetime.now().astimezone().isoformat()
 
     existing_groups[group] = value
 
@@ -537,7 +538,7 @@ def dump_dictionary(
 
 
 @_register(DEFAULT_H5_LOADERS, H5StoreTypes.Dictionary)
-def load_dictionary(file: Path, group: str):
+def load_dictionary(file: Path, group: str) -> dict[Any, Any]:
     with h5py.File(file, mode="r", track_order=True) as hdf5_file:
         entry = get_group(hdf5_file, group)
 
@@ -546,13 +547,9 @@ def load_dictionary(file: Path, group: str):
         results = {}
 
         for item in items:
-            _, item_result = ExportableClassMixin._load_h5_entry(
-                file, f"{group}/{item}/value"
-            )
+            _, item_result = ExportableClassMixin._load_h5_entry(file, f"{group}/{item}/value")
 
-            _, item_key = ExportableClassMixin._load_h5_entry(
-                file, f"{group}/{item}/key"
-            )
+            _, item_key = ExportableClassMixin._load_h5_entry(file, f"{group}/{item}/key")
 
             results[item_key] = item_result
 
@@ -567,8 +564,8 @@ def dump_generic_sequence(
     value: Sequence[Any],
     existing_groups: dict[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    basename = group.split("/")[-1]
-    attributes = {}
+    basename = group.rsplit("/", maxsplit=1)[-1]
+    attributes: dict[str, Any] = {}
     with h5py.File(file, mode="a", track_order=True) as hdf5_file:
         _ = hdf5_file.require_group(group)
         n_cache_items = len(value)
@@ -590,7 +587,7 @@ def dump_generic_sequence(
                     )
 
     attributes["type"] = H5StoreTypes.Sequence.name
-    attributes["timestamp"] = datetime.datetime.now().isoformat()
+    attributes["timestamp"] = datetime.datetime.now().astimezone().isoformat()
     existing_groups[group] = value
 
     return attributes, existing_groups
@@ -600,7 +597,7 @@ def dump_generic_sequence(
 def load_generic_sequence(file: Path, group: str) -> list[Any]:
     with h5py.File(file, mode="r", track_order=True) as hdf5_file:
         entry = get_group(hdf5_file, group)
-        basename = group.split("/")[-1]
+        basename = group.rsplit("/", maxsplit=1)[-1]
         items = list(entry)
         malformed_entries = [k for k in items if not re.match(rf"{basename}_[0-9]+", k)]
         if len(malformed_entries) > 0:
@@ -610,9 +607,7 @@ def load_generic_sequence(file: Path, group: str) -> list[Any]:
         results = []
 
         for item in items:
-            _, item_result = ExportableClassMixin._load_h5_entry(
-                file, f"{group}/{item}"
-            )
+            _, item_result = ExportableClassMixin._load_h5_entry(file, f"{group}/{item}")
 
             results.append(item_result)
     return results
@@ -627,7 +622,7 @@ if xr is not None:
         value: Dataset,
         existing_groups: dict[str, Any],
     ) -> tuple[dict[str, Any], dict[str, Any]]:
-        attributes = {}
+        attributes: dict[str, Any] = {}
 
         compression_args = {}
         for k in value.data_vars:
@@ -644,7 +639,7 @@ if xr is not None:
         )
         value.close()
         attributes["type"] = H5StoreTypes.XArrayDataset.name
-        attributes["timestamp"] = datetime.datetime.now().isoformat()
+        attributes["timestamp"] = datetime.datetime.now().astimezone().isoformat()
         existing_groups[group] = value
 
         return attributes, existing_groups
@@ -665,14 +660,14 @@ if pt is not None:
         value: Isotope | Element,
         existing_groups: dict[str, Any],
     ) -> tuple[dict[str, Any], dict[str, Any]]:
-        attributes = {}
+        attributes: dict[str, Any] = {}
         with h5py.File(file, mode="a", track_order=True) as hdf5_file:
             new_entry = hdf5_file.require_group(group)
             new_entry["element_name"] = str(value.name)
             new_entry["element_A"] = value.mass
             new_entry["element_Z"] = value.number
             attributes["type"] = H5StoreTypes.PeriodicTableElement.name
-            attributes["timestamp"] = datetime.datetime.now().isoformat()
+            attributes["timestamp"] = datetime.datetime.now().astimezone().isoformat()
 
         return attributes, existing_groups
 
@@ -687,9 +682,7 @@ if pt is not None:
 
 #### ndarray with units/error ####
 @register_writer(
-    lambda x: (
-        (Uncertainty is not None and isinstance(x, Uncertainty)) or hasattr(x, "units")
-    ),
+    lambda x: (Uncertainty is not None and isinstance(x, Uncertainty)) or hasattr(x, "units"),
 )
 def dump_unit_or_error_ndarrays(
     file: Path, group: str, value: Any, existing_groups: dict[str, Any]
@@ -707,7 +700,7 @@ def dump_unit_or_error_ndarrays(
     else:
         e = np.zeros_like(v)
 
-    attributes = {}
+    attributes: dict[str, Any] = {}
     with h5py.File(file, mode="a", track_order=True) as hdf5_file:
         new_entry = hdf5_file.require_group(group)
         if np.size(v) > 1:
@@ -726,7 +719,7 @@ def dump_unit_or_error_ndarrays(
         if u is not None:
             attributes["unit"] = u
         attributes["type"] = H5StoreTypes.DimensionalNDArray.name
-        attributes["timestamp"] = datetime.datetime.now().isoformat()
+        attributes["timestamp"] = datetime.datetime.now().astimezone().isoformat()
         attributes["ndim"] = np.ndim(v)
 
     existing_groups[group] = value
@@ -734,7 +727,7 @@ def dump_unit_or_error_ndarrays(
 
 
 @register_loader(H5StoreTypes.DimensionalNDArray)
-def load_unit_or_error_ndarrays(file: Path, group: str):
+def load_unit_or_error_ndarrays(file: Path, group: str) -> Any:
     with h5py.File(file, "r", track_order=True) as hdf5_file:
         entry = get_group(hdf5_file, group)
         v = get_dataset(entry, "value")[()]
@@ -753,18 +746,14 @@ def load_unit_or_error_ndarrays(file: Path, group: str):
                 if ur is None:
                     msg = "The dataset had unit information, but pint is not installed!"
                     raise ValueError(msg)
-                else:
-                    v *= ur(unit)
+                v *= ur(unit)
         except KeyError:
             pass
 
         ndim = read_h5_attr(entry, "ndim")
 
         if ndim == 0:
-            if nominal_values is not None:
-                sz = np.size(nominal_values(v))
-            else:
-                sz = np.size(v)
+            sz = np.size(nominal_values(v)) if nominal_values is not None else np.size(v)
             if sz > 1:
                 raise H5StoreException
             with contextlib.suppress(IndexError, TypeError):
@@ -776,23 +765,21 @@ def get_group(hdf5_handle: h5py.File | h5py.Group, name: str) -> h5py.Group:
     if name not in hdf5_handle:
         msg = f"Could not find group {name}!"
         raise KeyError(msg)
+    ret = hdf5_handle[name]
+    if isinstance(ret, h5py.Group):
+        return ret
     else:
-        ret = hdf5_handle[name]
-        if isinstance(ret, h5py.Group):
-            return ret
-        else:
-            msg = f"Expected group {name} but found {type(ret)}!"
-            raise TypeError(msg)
+        msg = f"Expected group {name} but found {type(ret)}!"
+        raise TypeError(msg)
 
 
 def get_dataset(hdf5_handle: h5py.File | h5py.Group, name: str) -> h5py.Dataset:
     if name not in hdf5_handle:
         msg = f"Could not find group {name}!"
         raise KeyError(msg)
+    ret = hdf5_handle[name]
+    if isinstance(ret, h5py.Dataset):
+        return ret
     else:
-        ret = hdf5_handle[name]
-        if isinstance(ret, h5py.Dataset):
-            return ret
-        else:
-            msg = f"Expected group {name} but found {type(ret)}!"
-            raise TypeError(msg)
+        msg = f"Expected group {name} but found {type(ret)}!"
+        raise TypeError(msg)
