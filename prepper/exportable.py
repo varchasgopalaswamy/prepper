@@ -1,7 +1,7 @@
 from abc import ABCMeta
 from annotationlib import Format
 import copy
-import datetime
+import datetime as dt
 import importlib.metadata
 import inspect
 from inspect import Parameter, signature
@@ -249,7 +249,7 @@ class ExportableClassMixin(metaclass=ABCMeta):
             code_name = self.__class__.__module__.split(".", maxsplit=1)[0]
             attributes["module"] = self.__class__.__module__
             attributes["class"] = self.__class__.__name__
-            attributes["timestamp"] = datetime.datetime.now().astimezone().isoformat()
+            attributes["timestamp"] = dt.datetime.now().astimezone().isoformat()
             if code_name == "__main__":
                 attributes["version"] = ""
             else:

@@ -1,6 +1,6 @@
 from collections.abc import Callable, Iterable, Sequence
 import contextlib
-import datetime
+import datetime as dt
 from enum import Enum
 import importlib
 import numbers
@@ -289,7 +289,7 @@ def dump_hdf5_group(
         new_entry = hdf5_file.require_group(group)
         value.copy(source="/", dest=new_entry, name="value")
         attributes["type"] = H5StoreTypes.HDF5Group.name
-        attributes["timestamp"] = datetime.datetime.now().astimezone().isoformat()
+        attributes["timestamp"] = dt.datetime.now().astimezone().isoformat()
 
     existing_groups[group] = value
     return attributes, existing_groups
@@ -353,7 +353,7 @@ def dump_python_enum(
         new_entry["enum_module"] = str(value.__class__.__module__)
         new_entry["enum_value"] = str(value.name)
         attributes["type"] = H5StoreTypes.Enumerator.name
-        attributes["timestamp"] = datetime.datetime.now().astimezone().isoformat()
+        attributes["timestamp"] = dt.datetime.now().astimezone().isoformat()
 
     return attributes, existing_groups
 
@@ -414,7 +414,7 @@ def dump_python_types_or_ndarray(
             loguru.logger.error(msg)
             raise H5StoreException(msg) from exc
         attributes["type"] = H5StoreTypes.HDF5Dataset.name
-        attributes["timestamp"] = datetime.datetime.now().astimezone().isoformat()
+        attributes["timestamp"] = dt.datetime.now().astimezone().isoformat()
     existing_groups[group] = value
 
     return attributes, existing_groups
@@ -446,7 +446,7 @@ def dump_class_constructor(
         constructor_attributes = {}
         constructor_attributes["module"] = value.__class__.__module__
         constructor_attributes["class"] = value.__class__.__name__
-        constructor_attributes["timestamp"] = datetime.datetime.now().astimezone().isoformat()
+        constructor_attributes["timestamp"] = dt.datetime.now().astimezone().isoformat()
         constructor_attributes["type"] = H5StoreTypes.ClassConstructor.name
         # Write out the attributes
         for k, v in constructor_attributes.items():
@@ -530,7 +530,7 @@ def dump_dictionary(
                     )
 
     attributes["type"] = H5StoreTypes.Dictionary.name
-    attributes["timestamp"] = datetime.datetime.now().astimezone().isoformat()
+    attributes["timestamp"] = dt.datetime.now().astimezone().isoformat()
 
     existing_groups[group] = value
 
@@ -587,7 +587,7 @@ def dump_generic_sequence(
                     )
 
     attributes["type"] = H5StoreTypes.Sequence.name
-    attributes["timestamp"] = datetime.datetime.now().astimezone().isoformat()
+    attributes["timestamp"] = dt.datetime.now().astimezone().isoformat()
     existing_groups[group] = value
 
     return attributes, existing_groups
@@ -639,7 +639,7 @@ if xr is not None:
         )
         value.close()
         attributes["type"] = H5StoreTypes.XArrayDataset.name
-        attributes["timestamp"] = datetime.datetime.now().astimezone().isoformat()
+        attributes["timestamp"] = dt.datetime.now().astimezone().isoformat()
         existing_groups[group] = value
 
         return attributes, existing_groups
@@ -667,7 +667,7 @@ if pt is not None:
             new_entry["element_A"] = value.mass
             new_entry["element_Z"] = value.number
             attributes["type"] = H5StoreTypes.PeriodicTableElement.name
-            attributes["timestamp"] = datetime.datetime.now().astimezone().isoformat()
+            attributes["timestamp"] = dt.datetime.now().astimezone().isoformat()
 
         return attributes, existing_groups
 
@@ -719,7 +719,7 @@ def dump_unit_or_error_ndarrays(
         if u is not None:
             attributes["unit"] = u
         attributes["type"] = H5StoreTypes.DimensionalNDArray.name
-        attributes["timestamp"] = datetime.datetime.now().astimezone().isoformat()
+        attributes["timestamp"] = dt.datetime.now().astimezone().isoformat()
         attributes["ndim"] = np.ndim(v)
 
     existing_groups[group] = value
