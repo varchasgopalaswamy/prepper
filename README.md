@@ -1,7 +1,8 @@
 # Prepper
 
 Store Python objects, populated cached properties, and method caches in HDF5.
-Requires Python 3.14 or newer.
+Requires Python 3.14 (`>=3.14,<3.15`). Python 3.15 support is deferred until
+compatible h5py wheels are available; see [h5py#2972](https://github.com/h5py/h5py/issues/2972).
 
 ## Comparison settings
 

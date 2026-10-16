@@ -3,7 +3,8 @@ name = "prepper"
 authors = [{ name = "Varchas Gopalaswamy", email = "varchas@gopalaswamy.org" }]
 description = "Allows python objects to be stored and loaded from an HDF5 file in a language-agnostic manner"
 readme = "README.md"
-requires-python = ">=3.14"
+# Revisit once Python 3.15 wheels are available: https://github.com/h5py/h5py/issues/2972
+requires-python = ">=3.14,<3.15"
 license = "MIT"
 classifiers = ["Programming Language :: Python :: 3"]
 dependencies = [
