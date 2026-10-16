@@ -8,6 +8,9 @@ steps:
   - name: test
     image: python:${python_version}
     commands:
+      # h5py needs system HDF5 headers and libraries when no wheel is available.
+      - apt-get update
+      - apt-get install -y --no-install-recommends libhdf5-dev pkg-config
       - curl -LsSf https://astral.sh/uv/install.sh | sh
       - export PATH="$HOME/.local/bin:$PATH"
       - ./scripts/ci/test.sh
