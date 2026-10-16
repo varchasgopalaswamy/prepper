@@ -1,4 +1,4 @@
-target-version = "py315"
+target-version = "py314"
 extend-exclude = ["typings"]
 
 line-length = 99

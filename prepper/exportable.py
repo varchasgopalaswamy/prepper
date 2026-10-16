@@ -11,8 +11,7 @@ import os
 from pathlib import Path
 import stat
 import tempfile
-from typing import Any, ClassVar, Self, TypeVar
-lazy from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, ClassVar, Self, TypeVar
 
 import h5py
 
@@ -21,6 +20,9 @@ from prepper.caching import break_key, make_cache_name
 from prepper.enums import H5StoreTypes
 from prepper.exceptions import H5StoreException
 from prepper.utils import check_equality
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 __all__ = ["ExportableClassMixin", "saveable_class"]
 

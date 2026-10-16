@@ -2,9 +2,12 @@
 
 from contextlib import contextmanager
 from pathlib import Path
-lazy from collections.abc import Generator
+from typing import TYPE_CHECKING
 
 import h5py
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
 
 type FileSource = str | Path | h5py.File
 

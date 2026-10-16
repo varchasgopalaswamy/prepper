@@ -6,23 +6,23 @@ import h5py
 h5py.get_config().track_order = True
 
 # Keep package exports explicit and maintain them alongside the public API.
-lazy from . import caching
-lazy from . import config
-lazy from . import enums
-lazy from . import exceptions
-lazy from . import exportable
-lazy from . import io_handlers
-lazy from . import utils
-lazy from .caching import break_key
-lazy from .caching import cached_property
-lazy from .caching import local_cache
-lazy from .caching import make_cache_name
-lazy from .config import Settings
-lazy from .config import configure
-lazy from .config import get_settings
-lazy from .exceptions import H5StoreException
-lazy from .exportable import ExportableClassMixin
-lazy from .exportable import saveable_class
+from . import caching
+from . import config
+from . import enums
+from . import exceptions
+from . import exportable
+from . import io_handlers
+from . import utils
+from .caching import break_key
+from .caching import cached_property
+from .caching import local_cache
+from .caching import make_cache_name
+from .config import Settings
+from .config import configure
+from .config import get_settings
+from .exceptions import H5StoreException
+from .exportable import ExportableClassMixin
+from .exportable import saveable_class
 
 __all__ = (
     "ExportableClassMixin",

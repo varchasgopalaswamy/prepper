@@ -1,15 +1,14 @@
 from bisect import bisect_left, bisect_right, insort
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Generator, Sequence
 from contextlib import contextmanager, nullcontext
 from contextvars import ContextVar
 from dataclasses import fields
 import datetime as dt
 from enum import Enum, Flag
 import importlib
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeVar
 import uuid
-lazy from collections.abc import Generator
-lazy from pathlib import Path
 
 import h5py
 import loguru

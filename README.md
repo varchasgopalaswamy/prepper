@@ -1,7 +1,7 @@
 # Prepper
 
 Store Python objects, populated cached properties, and method caches in HDF5.
-Requires Python 3.15 or newer.
+Requires Python 3.14 or newer.
 
 ## Comparison settings
 

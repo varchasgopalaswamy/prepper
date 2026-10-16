@@ -5,6 +5,7 @@ from functools import wraps
 import inspect
 import pickle
 from typing import (
+    TYPE_CHECKING,
     Any,
     Concatenate,
     Generic,
@@ -14,9 +15,11 @@ from typing import (
     cast,
     overload,
 )
-lazy from collections.abc import Callable, Iterable, Iterator
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterable, Iterator
 
 __all__ = [
     "break_key",
