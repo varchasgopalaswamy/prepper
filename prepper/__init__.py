@@ -2,13 +2,10 @@
 
 import h5py
 
-__public__ = ("caching", "config", "exceptions", "exportable")
-__protected__ = ("enums", "io_handlers", "utils")
-
 # Make h5py write groups in order.
 h5py.get_config().track_order = True
 
-# <geninit>
+# Keep package exports explicit and maintain them alongside the public API.
 lazy from . import caching
 lazy from . import config
 lazy from . import enums
@@ -46,4 +43,3 @@ __all__ = (
     "saveable_class",
     "utils",
 )
-# </geninit>

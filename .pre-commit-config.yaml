@@ -1,15 +1,5 @@
 repos:
 
-- repo: local
-  hooks:
-  - id: geninit
-    name: Generate package initializers
-    entry: uv run --locked --group ci geninit
-    language: system
-    pass_filenames: false
-    always_run: true
-    stages: [pre-commit]
-
 - repo: https://github.com/pre-commit/pre-commit-hooks
   rev: v6.0.0
   hooks:

@@ -2,6 +2,7 @@ from bisect import bisect_left, bisect_right, insort
 from collections.abc import Callable, Sequence
 from contextlib import contextmanager, nullcontext
 from contextvars import ContextVar
+from dataclasses import fields
 import datetime as dt
 from enum import Enum, Flag
 import importlib
@@ -44,6 +45,13 @@ try:
     ur = pint.get_application_registry()
 except ImportError:
     ur = None
+
+try:
+    import equinox as eqx
+    import jax
+except ImportError:
+    eqx = None
+    jax = None
 
 if TYPE_CHECKING:
     from periodictable.core import Element, Isotope
@@ -515,6 +523,8 @@ def load_python_enum(file: FileSource, group: str) -> Enum:
 
 #### generic HDF5 dataset ####
 def _is_native_dataset(value: Any) -> bool:
+    if jax is not None and isinstance(value, jax.Array):
+        return True
     if isinstance(value, (*PYTHON_BASIC_TYPES, bytes, complex, np.generic, np.ndarray)):
         return True
     if isinstance(value, (list, tuple)):
@@ -529,6 +539,9 @@ def _is_native_dataset(value: Any) -> bool:
 def dump_python_types_or_ndarray(
     file: FileSource, group: str, value: Any, existing_groups: dict[str, Any]
 ) -> tuple[dict[str, Any], dict[str, Any]]:
+    original_value = value
+    if jax is not None and isinstance(value, jax.Array):
+        value = np.asarray(value)
     attributes: dict[str, Any] = {}
     with open_hdf5(file, "a") as hdf5_file:
         if isinstance(value, bytes) and not isinstance(value, np.generic):
@@ -562,7 +575,7 @@ def dump_python_types_or_ndarray(
             raise H5StoreException(msg) from exc
         attributes["type"] = H5StoreTypes.HDF5Dataset.name
         attributes["timestamp"] = dt.datetime.now().astimezone().isoformat()
-    existing_groups[group] = value
+    existing_groups[group] = original_value
 
     return attributes, existing_groups
 
@@ -916,6 +929,56 @@ def dump_unit_or_error_ndarrays(
 
     existing_groups[group] = value
     return attributes, existing_groups
+
+
+#### Equinox Modules ####
+if eqx is not None:
+
+    @_register(CUSTOM_H5_WRITERS, lambda x: isinstance(x, eqx.Module))
+    def dump_equinox_module(
+        file: FileSource, group: str, value: eqx.Module, existing_groups: dict[str, Any]
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        attributes: dict[str, Any] = {}
+        with open_hdf5(file, "a") as hdf5_file:
+            _ = hdf5_file.require_group(group)
+            for field in fields(value):
+                if field.name.startswith("_") or not field.init:
+                    continue
+                item = getattr(value, field.name)
+                existing_groups = ExportableClassMixin._dump_h5_entry(
+                    hdf5_file,
+                    f"{group}/{field.name}",
+                    item,
+                    existing_groups=existing_groups,
+                )
+            attributes["type"] = H5StoreTypes.Equinox.name
+            attributes["module_class"] = f"{type(value).__module__}.{type(value).__name__}"
+            attributes["timestamp"] = dt.datetime.now().astimezone().isoformat()
+
+        existing_groups[group] = value
+        return attributes, existing_groups
+
+    @_register(CUSTOM_H5_LOADERS, H5StoreTypes.Equinox)
+    def load_equinox_module(file: FileSource, group: str) -> eqx.Module:
+        with open_hdf5(file) as hdf5_file:
+            entry = get_group(hdf5_file, group)
+            module_class = None
+            if "module_class" in entry.attrs:
+                module_class_path = entry.attrs["module_class"]
+                module_name, class_name = module_class_path.rsplit(".", 1)
+                module = importlib.import_module(module_name)
+                module_class = getattr(module, class_name, None)
+            if module_class is None or not issubclass(module_class, eqx.Module):
+                msg = f"Failed to load {group} because it was an Equinox entry, but the module class {module_class} is not a valid Equinox Module."
+                raise H5StoreException(msg)
+            field_values = {}
+            for field in fields(module_class):
+                if field.name.startswith("_") or not field.init:
+                    continue
+                item_group = f"{group}/{field.name}"
+                _, item_value = ExportableClassMixin._load_h5_entry(hdf5_file, item_group)
+                field_values[field.name] = item_value
+            return module_class(**field_values)
 
 
 @_register(CUSTOM_H5_LOADERS, H5StoreTypes.DimensionalNDArray)
