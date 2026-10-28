@@ -2,7 +2,7 @@ from bisect import bisect_left, bisect_right, insort
 from collections.abc import Callable, Generator, Sequence
 from contextlib import contextmanager, nullcontext
 from contextvars import ContextVar
-from dataclasses import fields
+from dataclasses import MISSING, fields
 import datetime as dt
 from enum import Enum, Flag
 import importlib
@@ -941,15 +941,16 @@ if eqx is not None:
         with open_hdf5(file, "a") as hdf5_file:
             _ = hdf5_file.require_group(group)
             for field in fields(value):
-                if field.name.startswith("_") or not field.init:
+                if not field.init:
                     continue
                 item = getattr(value, field.name)
-                existing_groups = ExportableClassMixin._dump_h5_entry(
-                    hdf5_file,
-                    f"{group}/{field.name}",
-                    item,
-                    existing_groups=existing_groups,
-                )
+                with exact_dedup():
+                    existing_groups = ExportableClassMixin._dump_h5_entry(
+                        hdf5_file,
+                        f"{group}/{field.name}",
+                        item,
+                        existing_groups=existing_groups,
+                    )
             attributes["type"] = H5StoreTypes.Equinox.name
             attributes["module_class"] = f"{type(value).__module__}.{type(value).__name__}"
             attributes["timestamp"] = dt.datetime.now().astimezone().isoformat()
@@ -972,9 +973,14 @@ if eqx is not None:
                 raise H5StoreException(msg)
             field_values = {}
             for field in fields(module_class):
-                if field.name.startswith("_") or not field.init:
+                if not field.init:
                     continue
                 item_group = f"{group}/{field.name}"
+                if field.name not in entry:
+                    if field.default is not MISSING or field.default_factory is not MISSING:
+                        continue
+                    msg = f"Missing required Equinox field {field.name!r} at {group}."
+                    raise H5StoreException(msg)
                 _, item_value = ExportableClassMixin._load_h5_entry(hdf5_file, item_group)
                 field_values[field.name] = item_value
             return module_class(**field_values)

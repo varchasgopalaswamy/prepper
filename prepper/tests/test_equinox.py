@@ -31,6 +31,27 @@ class Stack(eqx.Module):
     metadata: dict
 
 
+class PrivateMeasurement(eqx.Module):
+    _value: object
+    _unit: str = eqx.field(static=True)
+
+    @property
+    def value(self):
+        import pint
+
+        return pint.get_application_registry().Quantity(self._value, self._unit)
+
+
+class PrivateCollection(eqx.Module):
+    _items: list[str] = field(default_factory=list)
+
+
+class PrivateArrays(eqx.Module):
+    _value: object
+    _error: object
+    _metadata: dict
+
+
 @saveable_class("1")
 class ModelBox(ExportableClassMixin):
     def __init__(self, model):
@@ -51,7 +72,7 @@ def test_equinox_writer_records_class_and_serializable_fields(tmp_path):
         entry = handle["model"]
         assert entry.attrs["type"] == H5StoreTypes.Equinox.name
         assert dt.datetime.fromisoformat(entry.attrs["timestamp"]).tzinfo is not None
-        assert set(entry) == {"weight", "bias", "label"}
+        assert set(entry) == {"weight", "bias", "label", "_private"}
         assert entry.attrs["module_class"] == f"{__name__}.Affine"
 
 
@@ -105,7 +126,42 @@ def test_jax_arrays_in_nested_containers_load_as_numpy(tmp_path):
         np.testing.assert_array_equal(actual, weight)
 
 
-def test_equinox_loader_skips_private_and_non_init_fields(tmp_path):
+def test_equinox_private_field_preserves_saved_value(tmp_path):
+    value = Affine(np.array([1.0, 2.0]), 0.5, _private="saved private value")
+
+    restored = roundtrip(value, tmp_path)
+
+    assert restored._private == "saved private value"
+    assert restored.derived == value.derived
+
+
+def test_equinox_required_private_fields_keep_computed_quantity_property(tmp_path):
+    pint = pytest.importorskip("pint")
+    value = PrivateMeasurement(np.array([1.0, 2.0]), "keV")
+
+    restored = roundtrip(value, tmp_path)
+
+    assert type(restored) is PrivateMeasurement
+    np.testing.assert_array_equal(restored._value, value._value)
+    assert restored._unit == "keV"
+    assert restored.value.units == pint.get_application_registry().keV
+    np.testing.assert_array_equal(restored.value.magnitude, value.value.magnitude)
+
+
+def test_equinox_private_arrays_and_nested_metadata_retain_exact_values(tmp_path):
+    values = np.array([1.0, 2.0])
+    errors = values + 1e-12
+    value = PrivateArrays(values, errors, {"original": values.copy(), "changed": errors.copy()})
+
+    restored = roundtrip(value, tmp_path)
+
+    np.testing.assert_array_equal(restored._value, values)
+    np.testing.assert_array_equal(restored._error, errors)
+    np.testing.assert_array_equal(restored._metadata["original"], values)
+    np.testing.assert_array_equal(restored._metadata["changed"], errors)
+
+
+def test_equinox_loader_uses_old_file_defaults_and_recomputes_non_init_fields(tmp_path):
     # Build a valid file independently of the writer to exercise the loader alone.
     with h5py.File(tmp_path / "module.h5", "w") as handle:
         entry = handle.create_group("model")
@@ -119,6 +175,29 @@ def test_equinox_loader_skips_private_and_non_init_fields(tmp_path):
     assert restored.label == "saved"
     assert restored._private == "default"
     assert restored.derived == 7
+
+
+def test_equinox_loader_uses_default_factory_for_missing_private_field(tmp_path):
+    with h5py.File(tmp_path / "module.h5", "w") as handle:
+        entry = handle.create_group("model")
+        entry.attrs.update(
+            type=H5StoreTypes.Equinox.name,
+            module_class=f"{__name__}.PrivateCollection",
+        )
+        _, restored = ExportableClassMixin._load_h5_entry(handle, "/model")
+
+    assert restored._items == []
+
+
+def test_equinox_loader_rejects_missing_required_private_field(tmp_path):
+    with h5py.File(tmp_path / "module.h5", "w") as handle:
+        entry = handle.create_group("model")
+        entry.attrs.update(
+            type=H5StoreTypes.Equinox.name,
+            module_class=f"{__name__}.PrivateMeasurement",
+        )
+        with pytest.raises(H5StoreException, match="Missing required Equinox field '_value'"):
+            ExportableClassMixin._load_h5_entry(handle, "/model")
 
 
 @pytest.mark.parametrize("class_path", (None, "builtins.dict", f"{__name__}.MissingModule"))
